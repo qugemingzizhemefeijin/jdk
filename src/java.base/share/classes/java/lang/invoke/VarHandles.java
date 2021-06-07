@@ -622,7 +622,7 @@ final class VarHandles {
         throw throwable;
     }
 
-    private static Class<?>[] exceptionTypes(MethodHandle handle) {
+    static Class<?>[] exceptionTypes(MethodHandle handle) {
         if (handle instanceof DirectMethodHandle directHandle) {
             byte refKind = directHandle.member.getReferenceKind();
             MethodHandleInfo info = new InfoFromMemberName(
