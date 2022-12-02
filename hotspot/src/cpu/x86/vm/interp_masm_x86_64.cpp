@@ -688,16 +688,18 @@ void InterpreterMacroAssembler::remove_activation(
 void InterpreterMacroAssembler::lock_object(Register lock_reg) {
   assert(lock_reg == c_rarg1, "The argument is only for looks. It must be c_rarg1");
 
+  // 判断是否强制使用重锁,默认是false
   if (UseHeavyMonitors) {
     call_VM(noreg,
             CAST_FROM_FN_PTR(address, InterpreterRuntime::monitorenter),
             lock_reg);
   } else {
+    // 定义完成标签
     Label done;
 
     const Register swap_reg = rax; // Must use rax for cmpxchg instruction
     const Register obj_reg = c_rarg3; // Will contain the oop
-
+    // 声明一些偏移量
     const int obj_offset = BasicObjectLock::obj_offset_in_bytes();
     const int lock_offset = BasicObjectLock::lock_offset_in_bytes ();
     const int mark_offset = lock_offset +
@@ -705,13 +707,17 @@ void InterpreterMacroAssembler::lock_object(Register lock_reg) {
 
     Label slow_case;
 
+    // 传入的basicObjectLock中的对象地址存到obj_reg中,即c_rarg3寄存器中
     // Load object pointer into obj_reg %c_rarg3
     movptr(obj_reg, Address(lock_reg, obj_offset));
 
+    // 使用偏向锁
     if (UseBiasedLocking) {
+      // 偏向锁加锁方法  macroAssembler_x86.cpp
       biased_locking_enter(lock_reg, obj_reg, swap_reg, rscratch1, false, done, &slow_case);
     }
 
+    // 后面的方法是关于偏向锁撤销和升级的
     // Load immediate 1 into swap_reg %rax
     movl(swap_reg, 1);
 

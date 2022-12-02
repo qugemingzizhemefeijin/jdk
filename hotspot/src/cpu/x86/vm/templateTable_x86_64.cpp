@@ -3596,9 +3596,16 @@ void TemplateTable::athrow() {
 void TemplateTable::monitorenter() {
   transition(atos, vtos);
 
+  // 检查对象是否为null,此时对象存在rax寄存器中
   // check for NULL object
   __ null_check(rax);
 
+  // rbp是堆栈寄存器，通常指向栈底
+  // 栈帧中存在一个monitor数组用于保存锁相关信息,又叫lockRecord(后面都统称为lockRecord)
+  // frame::interpreter_frame_monitor_block_top_offset和frame::interpreter_frame_initial_sp_offset
+  // 表示monitor top 和monitor bot偏移量
+  // Address(x, j)表示距离x地址j偏移量的地址
+  // 所以这里声明的两个变量我们可以简单理解为栈帧中的monitor top 和monitor bot地址
   const Address monitor_block_top(
         rbp, frame::interpreter_frame_monitor_block_top_offset * wordSize);
   const Address monitor_block_bot(
@@ -3607,9 +3614,11 @@ void TemplateTable::monitorenter() {
 
   Label allocated;
 
+  // 初始化c_rarg1寄存器中的值(这里本质是一个异或运算)
   // initialize entry pointer
   __ xorl(c_rarg1, c_rarg1); // points to free slot or NULL
 
+  // 这部分代码逻辑是循环从lockRecord数组中找到一个空的槽位,并将其放入c_rarg1寄存器中
   // find a free slot in the monitor block (result in c_rarg1)
   {
     Label entry, loop, exit;
@@ -3617,45 +3626,63 @@ void TemplateTable::monitorenter() {
                                      // starting with top-most entry
     __ lea(c_rarg2, monitor_block_bot); // points to word before bottom
                                      // of monitor block
+    // 直接跳到entry标签位
     __ jmpb(entry);
-
+    // 绑定loop标签开始循环
     __ bind(loop);
+    // 检查当前LockRecord是否被使用
     // check if current entry is used
     __ cmpptr(Address(c_rarg3, BasicObjectLock::obj_offset_in_bytes()), (int32_t) NULL_WORD);
+    // 没有被使用则将其放到c_rarg1
     // if not used then remember entry in c_rarg1
     __ cmov(Assembler::equal, c_rarg1, c_rarg3);
+    // 检查和当前对象是否一样
     // check if current entry is for same object
     __ cmpptr(rax, Address(c_rarg3, BasicObjectLock::obj_offset_in_bytes()));
+    // 如果一样则表示重入，跳出循环
     // if same object then stop searching
     __ jccb(Assembler::equal, exit);
+    // 否则则跳到下一个entry
     // otherwise advance to next entry
     __ addptr(c_rarg3, entry_size);
+    // 绑定entry标签
     __ bind(entry);
+    // 比较c_rarg3与c_rarg2寄存器中的值,即是否相等
     // check if bottom reached
     __ cmpptr(c_rarg3, c_rarg2);
+    // 若不等则跳到loop继续循环
     // if not at bottom then check this entry
     __ jcc(Assembler::notEqual, loop);
     __ bind(exit);
   }
 
+  // 检测一个空槽位是否被找到(如果是重入则不会跳转会去新申请)
   __ testptr(c_rarg1, c_rarg1); // check if a slot has been found
+  // 找到则跳到 allocated标签
   __ jcc(Assembler::notZero, allocated); // if found, continue with that one
 
   // allocate one if there's no free slot
   {
     Label entry, loop;
+    // 将lockrecord底部的指针放到c_rarg1寄存器中
     // 1. compute new pointers             // rsp: old expression stack top
     __ movptr(c_rarg1, monitor_block_bot); // c_rarg1: old expression stack bottom
+    // 计算并移动栈顶和栈底到新位置，均移动entry_size(rsp寄存器指向栈顶)
     __ subptr(rsp, entry_size);            // move expression stack top
     __ subptr(c_rarg1, entry_size);        // move expression stack bottom
+    // 设置新的栈顶位置和栈底位置分别到c_rarg3寄存器和monitor_block_bot地址上
     __ mov(c_rarg3, rsp);                  // set start value for copy loop
     __ movptr(monitor_block_bot, c_rarg1); // set new monitor block bottom
+    // 跳到entry标签——为了先比较下然后开始循环
+    // c_rarg1则是新的空slot
     __ jmp(entry);
     // 2. move expression stack contents
     __ bind(loop);
+    // 这两行是将老栈顶位置的值存到新栈顶位置
     __ movptr(c_rarg2, Address(c_rarg3, entry_size)); // load expression stack
                                                       // word from old location
     __ movptr(Address(c_rarg3, 0), c_rarg2);          // and store it at new location
+    // 推进到下一个位置
     __ addptr(c_rarg3, wordSize);                     // advance to next word
     __ bind(entry);
     __ cmpptr(c_rarg3, c_rarg1);            // check if bottom reached
@@ -3663,6 +3690,7 @@ void TemplateTable::monitorenter() {
                                             // copy next word
   }
 
+  // 绑定allocated标签
   // call run-time routine
   // c_rarg1: points to monitor entry
   __ bind(allocated);
@@ -3673,14 +3701,19 @@ void TemplateTable::monitorenter() {
   // expression stack looks correct.
   __ increment(r13);
 
+  // 保存对象到lockRecord中,locrRecord对象有两个属性分别是对象指针和锁
+  // BasicObjectLock::obj_offset_in_bytes()也表示偏移量
   // store object
   __ movptr(Address(c_rarg1, BasicObjectLock::obj_offset_in_bytes()), rax);
+  // 加锁方法 interp_masm_x86_64.cpp
   __ lock_object(c_rarg1);
 
+  // 检查以确保该监视器在锁定后不会导致堆栈溢出
   // check to make sure this monitor doesn't cause stack overflow after locking
   __ save_bcp();  // in case of exception
   __ generate_stack_overflow_check(0);
 
+  // 调用下一个指令
   // The bcp has already been incremented. Just need to dispatch to
   // next instruction.
   __ dispatch_next(vtos);
