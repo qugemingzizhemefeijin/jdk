@@ -1,3 +1,0 @@
-E:/mygithub/jdk/hotspot/cmake-build-debug/CMakeFiles/hotspot.dir
-E:/mygithub/jdk/hotspot/cmake-build-debug/CMakeFiles/edit_cache.dir
-E:/mygithub/jdk/hotspot/cmake-build-debug/CMakeFiles/rebuild_cache.dir
