@@ -1545,7 +1545,7 @@ run:
           SAFEPOINT;
           goto handle_return;
       }
-
+      // 当构造一个覆盖了Object#finalize方法的类实例时，在<init>函数返回前，会调用return_register_finalizer这个指令
       CASE(_return_register_finalizer): {
 
           oop rcvr = LOCALS_OBJECT(0);

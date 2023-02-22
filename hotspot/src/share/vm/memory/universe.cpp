@@ -1086,6 +1086,9 @@ bool universe_post_init() {
   // Setup static method for registering finalizers
   // The finalizer klass must be linked before looking up the method, in
   // case it needs to get rewritten.
+  // 根据方法名称和签名找到register方法然后初始化（vmSymbols.hpp）
+  // template(register_method_name,                      "register")
+  // do_alias(register_method_signature,         object_void_signature)
   InstanceKlass::cast(SystemDictionary::Finalizer_klass())->link_class(CHECK_false);
   Method* m = InstanceKlass::cast(SystemDictionary::Finalizer_klass())->find_method(
                                   vmSymbols::register_method_name(),

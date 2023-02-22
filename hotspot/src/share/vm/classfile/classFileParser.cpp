@@ -2499,12 +2499,16 @@ methodHandle ClassFileParser::parse_method(bool is_interface,
                           annotation_default,
                           annotation_default_length,
                           CHECK_NULL);
-
+  // template(finalize_method_name,                      "finalize")
+  // template(void_method_signature,                     "()V")\
+  // 这里判断当前的方法是否是存在finalize方法
   if (name == vmSymbols::finalize_method_name() &&
       signature == vmSymbols::void_method_signature()) {
+    // 如果方法体不为空，则此类为Finalizer类
     if (m->is_empty_method()) {
       _has_empty_finalizer = true;
     } else {
+      // set_precomputed_flags方法中会使用此属性
       _has_finalizer = true;
     }
   }
@@ -4283,7 +4287,9 @@ void ClassFileParser::set_precomputed_flags(instanceKlassHandle k) {
 
   // Check if this klass has an empty finalize method (i.e. one with return bytecode only),
   // in which case we don't have to register objects as finalizable
+  // 当重写的finalize()方法体不为空或者父类就是一个含有finalizer()方法的类型时， 那么当前的类也是一个finalizer类型。 只有finalizer类型才会调用finalize()方法
   if (!_has_empty_finalizer) {
+    // 非空的finalize方法，并且当前类含有finalize方法或者父类也存在一个finalize方法，则将此类设置为Finalizer类。
     if (_has_finalizer ||
         (super != NULL && super->has_finalizer())) {
       k->set_has_finalizer();

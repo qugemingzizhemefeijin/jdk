@@ -459,7 +459,8 @@ void Rewriter::rewrite(instanceKlassHandle klass, TRAPS) {
   // (That's all, folks.)
 }
 
-
+// 方法执行之前进行字节码重写，并且保证任何一个类对于此方法都只会被调用一次。调用Rewriter::rewrite()函数进行字节码重写，重写完成后设置这个类已经被重写，这样就不会重复重写这个类了。
+// bcp是bytecode pointer，是某条字节码在内存中的地址；bci是bytecode index，是某条字节码相对该方法的字节码起始位置的偏移量
 Rewriter::Rewriter(instanceKlassHandle klass, constantPoolHandle cpool, Array<Method*>* methods, TRAPS)
   : _klass(klass),
     _pool(cpool),
@@ -470,6 +471,10 @@ Rewriter::Rewriter(instanceKlassHandle klass, constantPoolHandle cpool, Array<Me
   // determine index maps for Method* rewriting
   compute_index_maps();
 
+  // RegisterFinalizersAtInit命令解释：先执行new分配好对象空间，然后再执行invokespecial调用构造函数，
+  // jvm里其实可以让用户选择在这两个时机中的任意一个将当前对象传递给Finalizer.register方法来注册到Finalizer对象链里，
+  // 这个选择依赖于RegisterFinalizersAtInit这个vm参数是否被设置，默认值为true，也就是在调用构造函数返回之前调用
+  // Finalizer.register方法，如果通过-XX:-RegisterFinalizersAtInit关闭了该参数，那将在对象空间分配好之后就将这个对象注册进去。
   if (RegisterFinalizersAtInit && _klass->name() == vmSymbols::java_lang_Object()) {
     bool did_rewrite = false;
     int i = _methods->length();
@@ -479,6 +484,7 @@ Rewriter::Rewriter(instanceKlassHandle klass, constantPoolHandle cpool, Array<Me
         // rewrite the return bytecodes of Object.<init> to register the
         // object for finalization if needed.
         methodHandle m(THREAD, method);
+        // 字节码：当类实现了finalize方法的类构造函数
         rewrite_Object_init(m, CHECK);
         did_rewrite = true;
         break;
