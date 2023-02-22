@@ -1088,6 +1088,7 @@ instanceOop InstanceKlass::register_finalizer(instanceOop i, TRAPS) {
   // Pass the handle as argument, JavaCalls::call expects oop as jobjects
   JavaValue result(T_VOID);
   JavaCallArguments args(h_i);
+  // finalizer_register_method 即通过Finalizer找到的register
   methodHandle mh (THREAD, Universe::finalizer_register_method());
   JavaCalls::call(&result, mh, &args, CHECK_NULL);
   return h_i();
@@ -1102,6 +1103,7 @@ instanceOop InstanceKlass::allocate_instance(TRAPS) {
   instanceOop i;
 
   i = (instanceOop)CollectedHeap::obj_allocate(h_k, size, CHECK_NULL);
+  // 如果我们的要求Finalizer的类在分配好空间对象之后注册。
   if (has_finalizer_flag && !RegisterFinalizersAtInit) {
     i = register_finalizer(i, CHECK_NULL);
   }

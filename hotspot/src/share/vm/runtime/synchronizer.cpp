@@ -164,6 +164,7 @@ static volatile int MonitorPopulation = 0 ;      // # Extant -- in circulation
 // extremely sensitive to race condition. Be careful.
 
 void ObjectSynchronizer::fast_enter(Handle obj, BasicLock* lock, bool attempt_rebias, TRAPS) {
+ // 判断是否开启偏向锁
  if (UseBiasedLocking) {
     if (!SafepointSynchronize::is_at_safepoint()) {
       BiasedLocking::Condition cond = BiasedLocking::revoke_and_rebias(obj, attempt_rebias, THREAD);

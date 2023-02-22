@@ -3,10 +3,54 @@ project(hotspot)
 
 set(CMAKE_CXX_STANDARD 14)
 
-include_directories(./src/share/vm)
-include_directories(./src/cpu/x86/vm)
-include_directories(./src/share/vm/precompiled)
-include_directories(./src/share/vm/utilities)
+include_directories(agent/src/os/bsd)
+include_directories(agent/src/os/linux)
+include_directories(agent/src/os/solaris/proc)
+include_directories(src/cpu/sparc/vm)
+include_directories(src/cpu/x86/vm)
+include_directories(src/cpu/zero/vm)
+include_directories(src/os/bsd/dtrace)
+include_directories(src/os/bsd/vm)
+include_directories(src/os/linux/vm)
+include_directories(src/os/posix/vm)
+include_directories(src/os/solaris/dtrace)
+include_directories(src/os/solaris/vm)
+include_directories(src/os/windows/vm)
+include_directories(src/os_cpu/bsd_x86/vm)
+include_directories(src/os_cpu/bsd_zero/vm)
+include_directories(src/os_cpu/linux_sparc/vm)
+include_directories(src/os_cpu/linux_x86/vm)
+include_directories(src/os_cpu/linux_zero/vm)
+include_directories(src/os_cpu/solaris_sparc/vm)
+include_directories(src/os_cpu/solaris_x86/vm)
+include_directories(src/os_cpu/windows_x86/vm)
+include_directories(src/share/tools/hsdis)
+include_directories(src/share/vm/adlc)
+include_directories(src/share/vm/asm)
+include_directories(src/share/vm/c1)
+include_directories(src/share/vm/ci)
+include_directories(src/share/vm/classfile)
+include_directories(src/share/vm/code)
+include_directories(src/share/vm/compiler)
+include_directories(src/share/vm/gc_implementation/concurrentMarkSweep)
+include_directories(src/share/vm/gc_implementation/g1)
+include_directories(src/share/vm/gc_implementation/parallelScavenge)
+include_directories(src/share/vm/gc_implementation/parNew)
+include_directories(src/share/vm/gc_implementation/shared)
+include_directories(src/share/vm/gc_interface)
+include_directories(src/share/vm/interpreter)
+include_directories(src/share/vm/libadt)
+include_directories(src/share/vm/memory)
+include_directories(src/share/vm/oops)
+include_directories(src/share/vm/opto)
+include_directories(src/share/vm/precompiled)
+include_directories(src/share/vm/prims)
+include_directories(src/share/vm/prims/wbtestmethods)
+include_directories(src/share/vm/runtime)
+include_directories(src/share/vm/services)
+include_directories(src/share/vm/shark)
+include_directories(src/share/vm/trace)
+include_directories(src/share/vm/utilities)
 
 add_executable(hotspot
         agent/src/os/bsd/BsdDebuggerLocal.c
@@ -42,6 +86,229 @@ add_executable(hotspot
         agent/src/os/solaris/proc/saproc_audit.cpp
         agent/src/os/win32/windbg/sawindbg.cpp
         agent/src/share/native/sadis.c
+        cmake-build-debug/Testing/Temporary/LastTest.log
+        cmake-build-debug/cmake_install.cmake
+        cmake-build-debug/CMakeCache.txt
+        cmake-build-debug/hotspot.cbp
+        cmake-build-debug/Makefile
+        make/bsd/makefiles/adjust-mflags.sh
+        make/bsd/makefiles/adlc.make
+        make/bsd/makefiles/amd64.make
+        make/bsd/makefiles/arm.make
+        make/bsd/makefiles/build_vm_def.sh
+        make/bsd/makefiles/buildtree.make
+        make/bsd/makefiles/compiler1.make
+        make/bsd/makefiles/compiler2.make
+        make/bsd/makefiles/core.make
+        make/bsd/makefiles/cscope.make
+        make/bsd/makefiles/debug.make
+        make/bsd/makefiles/defs.make
+        make/bsd/makefiles/dtrace.make
+        make/bsd/makefiles/fastdebug.make
+        make/bsd/makefiles/gcc.make
+        make/bsd/makefiles/hp.make
+        make/bsd/makefiles/hp1.make
+        make/bsd/makefiles/i486.make
+        make/bsd/makefiles/ia64.make
+        make/bsd/makefiles/jsig.make
+        make/bsd/makefiles/jvmti.make
+        make/bsd/makefiles/mapfile-vers-debug
+        make/bsd/makefiles/mapfile-vers-jsig
+        make/bsd/makefiles/mapfile-vers-product
+        make/bsd/makefiles/minimal1.make
+        make/bsd/makefiles/optimized.make
+        make/bsd/makefiles/ppc.make
+        make/bsd/makefiles/product.make
+        make/bsd/makefiles/rules.make
+        make/bsd/makefiles/sa.make
+        make/bsd/makefiles/saproc.make
+        make/bsd/makefiles/shark.make
+        make/bsd/makefiles/sparc.make
+        make/bsd/makefiles/sparcv9.make
+        make/bsd/makefiles/sparcWorks.make
+        make/bsd/makefiles/tiered.make
+        make/bsd/makefiles/top.make
+        make/bsd/makefiles/trace.make
+        make/bsd/makefiles/universal.gmk
+        make/bsd/makefiles/vm.make
+        make/bsd/makefiles/zero.make
+        make/bsd/makefiles/zeroshark.make
+        make/bsd/adlc_updater
+        make/bsd/Makefile
+        make/bsd/platform_amd64
+        make/bsd/platform_amd64.suncc
+        make/bsd/platform_i486
+        make/bsd/platform_i486.suncc
+        make/bsd/platform_ia64
+        make/bsd/platform_sparc
+        make/bsd/platform_sparcv9
+        make/bsd/platform_zero.in
+        make/bsd/README
+        make/linux/makefiles/adjust-mflags.sh
+        make/linux/makefiles/adlc.make
+        make/linux/makefiles/amd64.make
+        make/linux/makefiles/arm.make
+        make/linux/makefiles/build_vm_def.sh
+        make/linux/makefiles/buildtree.make
+        make/linux/makefiles/compiler1.make
+        make/linux/makefiles/compiler2.make
+        make/linux/makefiles/core.make
+        make/linux/makefiles/debug.make
+        make/linux/makefiles/defs.make
+        make/linux/makefiles/dtrace.make
+        make/linux/makefiles/fastdebug.make
+        make/linux/makefiles/gcc.make
+        make/linux/makefiles/hp.make
+        make/linux/makefiles/hp1.make
+        make/linux/makefiles/i486.make
+        make/linux/makefiles/ia64.make
+        make/linux/makefiles/jsig.make
+        make/linux/makefiles/jvmti.make
+        make/linux/makefiles/mapfile-vers-debug
+        make/linux/makefiles/mapfile-vers-jsig
+        make/linux/makefiles/mapfile-vers-product
+        make/linux/makefiles/minimal1.make
+        make/linux/makefiles/optimized.make
+        make/linux/makefiles/ppc.make
+        make/linux/makefiles/product.make
+        make/linux/makefiles/rules.make
+        make/linux/makefiles/sa.make
+        make/linux/makefiles/saproc.make
+        make/linux/makefiles/shark.make
+        make/linux/makefiles/sparc.make
+        make/linux/makefiles/sparcv9.make
+        make/linux/makefiles/sparcWorks.make
+        make/linux/makefiles/tiered.make
+        make/linux/makefiles/top.make
+        make/linux/makefiles/trace.make
+        make/linux/makefiles/vm.make
+        make/linux/makefiles/zero.make
+        make/linux/makefiles/zeroshark.make
+        make/linux/adlc_updater
+        make/linux/Makefile
+        make/linux/platform_amd64
+        make/linux/platform_amd64.suncc
+        make/linux/platform_arm
+        make/linux/platform_i486
+        make/linux/platform_i486.suncc
+        make/linux/platform_ia64
+        make/linux/platform_ppc
+        make/linux/platform_sparc
+        make/linux/platform_sparcv9
+        make/linux/platform_zero.in
+        make/linux/README
+        make/solaris/makefiles/add_gnu_debuglink.make
+        make/solaris/makefiles/adjust-mflags.sh
+        make/solaris/makefiles/adlc.make
+        make/solaris/makefiles/amd64.make
+        make/solaris/makefiles/build_vm_def.sh
+        make/solaris/makefiles/buildtree.make
+        make/solaris/makefiles/compiler1.make
+        make/solaris/makefiles/compiler2.make
+        make/solaris/makefiles/core.make
+        make/solaris/makefiles/debug.make
+        make/solaris/makefiles/defs.make
+        make/solaris/makefiles/dtrace.make
+        make/solaris/makefiles/fastdebug.make
+        make/solaris/makefiles/fix_empty_sec_hdr_flags.make
+        make/solaris/makefiles/gcc.make
+        make/solaris/makefiles/hp.make
+        make/solaris/makefiles/hp1.make
+        make/solaris/makefiles/i486.make
+        make/solaris/makefiles/jsig.make
+        make/solaris/makefiles/jvmti.make
+        make/solaris/makefiles/mapfile-vers
+        make/solaris/makefiles/mapfile-vers-COMPILER1
+        make/solaris/makefiles/mapfile-vers-COMPILER2
+        make/solaris/makefiles/mapfile-vers-CORE
+        make/solaris/makefiles/mapfile-vers-debug
+        make/solaris/makefiles/mapfile-vers-jsig
+        make/solaris/makefiles/mapfile-vers-jvm_db
+        make/solaris/makefiles/mapfile-vers-jvm_dtrace
+        make/solaris/makefiles/mapfile-vers-TIERED
+        make/solaris/makefiles/optimized.make
+        make/solaris/makefiles/product.make
+        make/solaris/makefiles/reorder_CORE_amd64
+        make/solaris/makefiles/rules.make
+        make/solaris/makefiles/sa.make
+        make/solaris/makefiles/saproc.make
+        make/solaris/makefiles/sparc.make
+        make/solaris/makefiles/sparcv9.make
+        make/solaris/makefiles/sparcWorks.make
+        make/solaris/makefiles/tiered.make
+        make/solaris/makefiles/top.make
+        make/solaris/makefiles/trace.make
+        make/solaris/makefiles/vm.make
+        make/solaris/adlc_updater
+        make/solaris/Makefile
+        make/solaris/platform_amd64
+        make/solaris/platform_amd64.gcc
+        make/solaris/platform_i486
+        make/solaris/platform_i486.gcc
+        make/solaris/platform_sparc
+        make/solaris/platform_sparc.gcc
+        make/solaris/platform_sparcv9
+        make/solaris/platform_sparcv9.gcc
+        make/templates/gpl-cp-header
+        make/templates/gpl-header
+        make/windows/makefiles/adlc.make
+        make/windows/makefiles/compile.make
+        make/windows/makefiles/debug.make
+        make/windows/makefiles/defs.make
+        make/windows/makefiles/fastdebug.make
+        make/windows/makefiles/generated.make
+        make/windows/makefiles/jvmti.make
+        make/windows/makefiles/product.make
+        make/windows/makefiles/projectcreator.make
+        make/windows/makefiles/rules.make
+        make/windows/makefiles/sa.make
+        make/windows/makefiles/sanity.make
+        make/windows/makefiles/shared.make
+        make/windows/makefiles/top.make
+        make/windows/makefiles/trace.make
+        make/windows/makefiles/vm.make
+        make/windows/projectfiles/common/Makefile
+        make/windows/projectfiles/compiler1/Makefile
+        make/windows/projectfiles/compiler1/vm.def
+        make/windows/projectfiles/compiler1/vm.dsw
+        make/windows/projectfiles/compiler2/ADLCompiler.dsp
+        make/windows/projectfiles/compiler2/ADLCompiler.dsw
+        make/windows/projectfiles/compiler2/Makefile
+        make/windows/projectfiles/compiler2/vm.def
+        make/windows/projectfiles/compiler2/vm.dsw
+        make/windows/projectfiles/core/Makefile
+        make/windows/projectfiles/core/vm.def
+        make/windows/projectfiles/core/vm.dsw
+        make/windows/projectfiles/tiered/ADLCompiler.dsp
+        make/windows/projectfiles/tiered/ADLCompiler.dsw
+        make/windows/projectfiles/tiered/Makefile
+        make/windows/projectfiles/tiered/vm.def
+        make/windows/projectfiles/tiered/vm.dsw
+        make/windows/build.bat
+        make/windows/build.make
+        make/windows/build_vm_def.sh
+        make/windows/create.bat
+        make/windows/create_obj_files.sh
+        make/windows/cross_build.bat
+        make/windows/get_msc_ver.sh
+        make/windows/jvmexp.lcf
+        make/windows/jvmexp_g.lcf
+        make/altsrc.make
+        make/build.sh
+        make/cscope.make
+        make/defs.make
+        make/excludeSrc.make
+        make/hotspot.script
+        make/hotspot_distro
+        make/hotspot_version
+        make/jdk6_hotspot_distro
+        make/jprt.gmk
+        make/jprt.properties
+        make/Makefile
+        make/openjdk_distro
+        make/pic.make
+        make/sa.files
+        make/scm.make
         src/cpu/sparc/vm/args.cc
         src/cpu/sparc/vm/assembler_sparc.cpp
         src/cpu/sparc/vm/assembler_sparc.hpp
@@ -1720,8 +1987,4 @@ add_executable(hotspot
         src/share/vm/utilities/xmlstream.cpp
         src/share/vm/utilities/xmlstream.hpp
         src/share/vm/utilities/yieldingWorkgroup.cpp
-        src/share/vm/utilities/yieldingWorkgroup.hpp
-        test/runtime/6929067/invoke.c
-        test/runtime/7107135/test.c
-        test/runtime/InitialThreadOverflow/invoke.cxx
-        test/runtime/jsig/TestJNI.c)
+        src/share/vm/utilities/yieldingWorkgroup.hpp)

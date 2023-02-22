@@ -1427,8 +1427,9 @@ void GraphBuilder::call_register_finalizer() {
   }
 }
 
-
+// 此处就是函数返回的调用
 void GraphBuilder::method_return(Value x) {
+  // 这里如果我们的要求Finalizer的类在构造函数返回前注册。（先分配空间，再调用构造函数）
   if (RegisterFinalizersAtInit &&
       method()->intrinsic_id() == vmIntrinsics::_Object_init) {
     call_register_finalizer();

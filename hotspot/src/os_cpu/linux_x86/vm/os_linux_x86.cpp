@@ -209,6 +209,12 @@ enum {
   trap_page_fault = 0xE
 };
 
+// 发生 stackoverflow 还有空指针错误，确实都发送了 SIGSEGV，只是虚拟机不选择退出，而是自己内部作了额外的处理，其实是恢复了线程的执行，
+// 并抛出 StackoverflowError 和 NPE，这就是为什么 JVM 不会崩溃且我们能捕获这两个错误/异常的原因。
+
+// 如果针对 SIGSEGV 等信号（默认 SIGTERM），在以上的函数中 JVM 没有做额外的处理，那么最终会走到 report_and_die 这个方法，
+// 这个方法主要做的事情是生成 hs_err_pid_xxx.log crash 文件（记录了一些堆栈信息或错误），然后退出
+
 extern "C" JNIEXPORT int
 JVM_handle_linux_signal(int sig,
                         siginfo_t* info,
@@ -220,6 +226,7 @@ JVM_handle_linux_signal(int sig,
 
   // Must do this before SignalHandlerMark, if crash protection installed we will longjmp away
   // (no destructors can be run)
+  // 这段代码里会调用 siglongjmp，主要做线程恢复之用
   os::WatcherThreadCrashProtection::check_crash_protection(sig, t);
 
   SignalHandlerMark shm(t);
@@ -295,12 +302,13 @@ JVM_handle_linux_signal(int sig,
       address addr = (address) info->si_addr;
 
       // check if fault address is within thread stack
+      // 判断是否栈溢出了
       if (addr < thread->stack_base() &&
           addr >= thread->stack_base() - thread->stack_size()) {
         // stack overflow
         if (thread->in_stack_yellow_zone(addr)) {
           thread->disable_stack_yellow_zone();
-          if (thread->thread_state() == _thread_in_Java) {
+          if (thread->thread_state() == _thread_in_Java) { // 针对栈溢出 JVM 的内部处理
             // Throw a stack overflow exception.  Guard pages will be reenabled
             // while unwinding the stack.
             stub = SharedRuntime::continuation_for_implicit_exception(thread, pc, SharedRuntime::STACK_OVERFLOW);
@@ -394,6 +402,7 @@ JVM_handle_linux_signal(int sig,
       } else if (sig == SIGSEGV &&
                !MacroAssembler::needs_explicit_null_check((intptr_t)info->si_addr)) {
           // Determination of interpreter/vtable stub/compiled code null exception
+          // 此处会做空指针检查
           stub = SharedRuntime::continuation_for_implicit_exception(thread, pc, SharedRuntime::IMPLICIT_NULL);
       }
     } else if (thread->thread_state() == _thread_in_vm &&
@@ -501,12 +510,13 @@ JVM_handle_linux_signal(int sig,
     }
   }
 #endif // !AMD64
-
+  // 如果是栈溢出或者空指针最终会返回 true，不会走最后的 report_and_die，所以 JVM 不会退出
   if (stub != NULL) {
     // save all thread context in case we need to restore it
     if (thread != NULL) thread->set_saved_exception_pc(pc);
 
     uc->uc_mcontext.gregs[REG_PC] = (greg_t)stub;
+    // 返回 true 代表 JVM 进程不会退出
     return true;
   }
 
@@ -531,6 +541,7 @@ JVM_handle_linux_signal(int sig,
   sigprocmask(SIG_UNBLOCK, &newset, NULL);
 
   VMError err(t, sig, pc, info, ucVoid);
+  // 生成 hs_err_pid_xxx.log 文件并退出
   err.report_and_die();
 
   ShouldNotReachHere();

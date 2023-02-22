@@ -1707,6 +1707,7 @@ run:
             if (THREAD->is_lock_owned((address) displaced->clear_lock_bits())) {
               entry->lock()->set_displaced_header(NULL);
             } else {
+              // 解释器执行monitorenter  interpreterRuntime.cpp 561
               CALL_VM(InterpreterRuntime::monitorenter(THREAD, entry), handle_exception);
             }
           }
