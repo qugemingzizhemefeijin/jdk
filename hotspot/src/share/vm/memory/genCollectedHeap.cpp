@@ -483,13 +483,21 @@ void GenCollectedHeap::do_collection(bool  full,
           // atomic wrt other collectors in this configuration, we
           // are guaranteed to have empty discovered ref lists.
           if (rp->discovery_is_atomic()) {
+            // 在调用enable_discovery()函数里会设置_discovering_refs变量的值为 true，这样在YGC或FGC的标记阶段只会查找引用，不会处理引用。
             rp->enable_discovery(true /*verify_disabled*/, true /*verify_no_refs*/);
+            // 默认使用的引用类型回收策略为LRUMaxHeapPolicy，与之前在ReferenceProcessor构造函数中初始化的回收策略一致，
+            // 设置软引用的回收策略，do_clear_all_soft_refs
+            // do_clear_all_soft_refs ? _always_clear_soft_ref_policy : _default_soft_ref_policy;
             rp->setup_policy(do_clear_all_soft_refs);
           } else {
             // collect() below will enable discovery as appropriate
           }
+          // 执行YGC时， 调用DefNewGeneration::collect()函数，
+          // 执行FGC时， 调用TenuredGeneration::collect()函数
           _gens[i]->collect(full, do_clear_all_soft_refs, size, is_tlab);
+          // 将不可达的引用对象加入PendingList链表
           if (!rp->enqueuing_is_done()) {
+            // enqueue_discovered_references根据是否使用压缩指针选择不同的 enqueue_discovered_ref_helper()模板函数
             rp->enqueue_discovered_references();
           } else {
             rp->set_enqueuing_is_done(false);
@@ -614,6 +622,8 @@ gen_process_strong_roots(int level,
     if (!_gen_process_strong_tasks->is_task_claimed(GCH_PS_younger_gens)) {
       for (int i = 0; i < level; i++) {
         not_older_gens->set_generation(_gens[i]);
+        // hotspot/src/share/vm/oops/oop.inline.hpp
+        // 返回的是当前oopDesc的size
         _gens[i]->oop_iterate(not_older_gens);
       }
       not_older_gens->reset_generation();

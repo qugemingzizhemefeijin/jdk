@@ -29,13 +29,18 @@
 #include "runtime/arguments.hpp"
 #include "runtime/globals.hpp"
 
+// ReferencePolicy一共有4种实现策略， 分别为NeverClearPolicy、AlwaysClearPolicy、 LRUCurrentHeapPolicy与LRUMaxHeapPolicy。
+// 常用的是 LRUCurrentHeapPolicy 和 LRUMaxHeapPolicy 策略。
 LRUCurrentHeapPolicy::LRUCurrentHeapPolicy() {
   setup();
 }
 
 // Capture state (of-the-VM) information needed to evaluate the policy
 void LRUCurrentHeapPolicy::setup() {
+  // 上次GC后空闲堆内存 / M * SoftRefLRUPolicyMSPerMB 最后算出软引用的最终存活时间
   _max_interval = (Universe::get_heap_free_at_last_gc() / M) * SoftRefLRUPolicyMSPerMB;
+  // SoftRefLRUPolicyMSPerMB的默认值为1000，其实就是 1000ms/MB=1s/MB，也就是说上次GC后可用堆大小如果是10MB，那么_max_interval的值就是10s。
+  // 根据should_clear_reference()函数的判断逻辑，软引用至少可以存活10秒的时间
   assert(_max_interval >= 0,"Sanity check");
 }
 
@@ -43,6 +48,7 @@ void LRUCurrentHeapPolicy::setup() {
 // the object the SoftReference points to.
 bool LRUCurrentHeapPolicy::should_clear_reference(oop p,
                                                   jlong timestamp_clock) {
+  // 获取SoftReference.timestamp字段的值， 这个值在调用get()方法时可能会更新为SoftReference.clock字段的值， 因此timestamp_clock可能与timestamp的值相同
   jlong interval = timestamp_clock - java_lang_ref_SoftReference::timestamp(p);
   assert(interval >= 0, "Sanity check");
 
@@ -62,6 +68,7 @@ LRUMaxHeapPolicy::LRUMaxHeapPolicy() {
 
 // Capture state (of-the-VM) information needed to evaluate the policy
 void LRUMaxHeapPolicy::setup() {
+  // (最大堆内存 - 上次GC后已使用的堆内存) / M * SoftRefLRUPolicyMSPerMB   最后算出软引用的最终存活时间
   size_t max_heap = MaxHeapSize;
   max_heap -= Universe::get_heap_used_at_last_gc();
   max_heap /= M;
@@ -74,6 +81,7 @@ void LRUMaxHeapPolicy::setup() {
 // the object the SoftReference points to.
 bool LRUMaxHeapPolicy::should_clear_reference(oop p,
                                              jlong timestamp_clock) {
+  // 获取SoftReference.timestamp字段的值， 这个值在调用get()方法时可能会更新为SoftReference.clock字段的值， 因此timestamp_clock可能与timestamp的值相同
   jlong interval = timestamp_clock - java_lang_ref_SoftReference::timestamp(p);
   assert(interval >= 0, "Sanity check");
 

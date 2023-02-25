@@ -422,9 +422,9 @@ BasicType Method::result_type() const {
   return rtf.type();
 }
 
-
+// 判断一个方法是否是空方法（是否只有return字节码）
 bool Method::is_empty_method() const {
-  return  code_size() == 1
+  return  code_size() == 1 // 只有一个字节码指令
       && *code_base() == Bytecodes::_return;
 }
 

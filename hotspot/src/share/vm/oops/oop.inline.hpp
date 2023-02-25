@@ -696,6 +696,9 @@ inline int oopDesc::adjust_pointers() {
   return s;
 }
 
+// klass()->oop_oop_iterate 返回的是当前oopDesc的size
+// hotspot/src/share/vm/oops/InstanceRefKlass.cpp
+
 #define OOP_ITERATE_DEFN(OopClosureType, nv_suffix)                        \
                                                                            \
 inline int oopDesc::oop_iterate(OopClosureType* blk) {                     \

@@ -89,6 +89,8 @@ void Generation::print_heap_change(size_t prev_used) const {
 void Generation::ref_processor_init() {
   assert(_ref_processor == NULL, "a reference processor already exists");
   assert(!_reserved.is_empty(), "empty generation?");
+  // 初始化引用处理器，_reserved = MemRegion((HeapWord*)_virtual_space.low_boundary(), (HeapWord*)_virtual_space.high_boundary());
+  // 实际就是内存代的范围地址
   _ref_processor = new ReferenceProcessor(_reserved);    // a vanilla reference processor
   if (_ref_processor == NULL) {
     vm_exit_during_initialization("Could not allocate ReferenceProcessor object");

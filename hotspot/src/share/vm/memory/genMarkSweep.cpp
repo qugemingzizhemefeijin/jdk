@@ -190,6 +190,8 @@ void GenMarkSweep::deallocate_stacks() {
   _objarray_stack.clear(true);
 }
 
+//  将普通根（Universe，JavaThread，JNI 引用的对象等，注意，没有以年轻代为起点） 做为起点，对他们和他们引用的对象，以及他们引用的对象引用的对象......
+// 深度打标（标记栈），打标其实只是为对象头设置特殊值，如果必要，会把对象头保存下来（临时结构）
 void GenMarkSweep::mark_sweep_phase1(int level,
                                   bool clear_all_softrefs) {
   // Recursively traverse all live objects and mark them
@@ -206,7 +208,7 @@ void GenMarkSweep::mark_sweep_phase1(int level,
 
   // Need new claim bits before marking starts.
   ClassLoaderDataGraph::clear_claimed_marks();
-
+  // 扫描根节点，标记年轻代与老年代的所有活跃对象。
   gch->gen_process_strong_roots(level,
                                 false, // Younger gens are not roots.
                                 true,  // activate StrongRootsScope
@@ -218,9 +220,12 @@ void GenMarkSweep::mark_sweep_phase1(int level,
                                 &follow_klass_closure);
 
   // Process reference objects found during marking
+  // 在完成所有对象标记后， 调用process_discovered_references()函数处理引用类型
+  // 在标记过程中如果遇到引用类型对象Reference，与新生代的处理一样，最终会调用到 instanceRefKlass.cpp的 InstanceRefKlass_SPECIALIZED_OOP_ITERATE 中。
   {
     ref_processor()->setup_policy(clear_all_softrefs);
     const ReferenceProcessorStats& stats =
+      // 处理引用对象（follow_stack_closure 会调用到 MarkSweep::follow_stack => InstanceRefKlass::oop_follow_contents()）
       ref_processor()->process_discovered_references(
         &is_alive, &keep_alive, &follow_stack_closure, NULL, _gc_timer);
     gc_tracer()->report_gc_reference_stats(stats);
@@ -247,7 +252,7 @@ void GenMarkSweep::mark_sweep_phase1(int level,
   gc_tracer()->report_object_count_after_gc(&is_alive);
 }
 
-
+// 进行 老年代 和 年轻代 存活对象的地址计算，并且写入到对象头
 void GenMarkSweep::mark_sweep_phase2() {
   // Now all live objects are marked, compute the new object addresses.
 
@@ -277,6 +282,8 @@ public:
   }
 };
 
+// 遍历所有space，也就是EdenSpace，CMSspcae，continguousSpace（from，to）然后调用每个space的adjust_pointers，
+// 这个方法会遍历一遍对应的space的所有对象，如果对象的引用类型指向的对象（oopDesc）的对象头被设置了 forwardee 指针，则把引用类型调整为 forwardee 指针。（比较耗时）
 void GenMarkSweep::mark_sweep_phase3(int level) {
   GenCollectedHeap* gch = GenCollectedHeap::heap();
 
@@ -305,6 +312,7 @@ void GenMarkSweep::mark_sweep_phase3(int level) {
 
   // Now adjust pointers in remaining weak roots.  (All of which should
   // have been cleared if they pointed to non-surviving objects.)
+  // 更新对象的引用地址时也要同步更新引用类型相关的引用地址。 调用 oop_adjust_pointers()函数更新引用地址。
   CodeBlobToOopClosure adjust_code_pointer_closure(&adjust_pointer_closure,
                                                    /*do_marking=*/ false);
   gch->gen_process_weak_roots(&adjust_pointer_closure,
@@ -322,6 +330,7 @@ public:
   }
 };
 
+// 遍历整个老年代和年轻代，将对象头中包含 forwardee 指针的 对象，复制到 forward 指针所指的内存区域（比较耗时）
 void GenMarkSweep::mark_sweep_phase4() {
   // All pointers are now adjusted, move objects accordingly
 

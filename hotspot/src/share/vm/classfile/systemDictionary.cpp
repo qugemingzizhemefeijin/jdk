@@ -1916,6 +1916,7 @@ void SystemDictionary::initialize_preloaded_classes(TRAPS) {
 
   // Preload ref klasses and set reference types
   InstanceKlass::cast(WK_KLASS(Reference_klass))->set_reference_type(REF_OTHER);
+  // 在Universe初始化阶段， 在加载完成java.lang.Reference类后会调用InstanceRefKlass::update_nonstatic_oop_maps()函数更新OopMapBlock相关信息
   InstanceRefKlass::update_nonstatic_oop_maps(WK_KLASS(Reference_klass));
 
   initialize_wk_klasses_through(WK_KLASS_ENUM_NAME(PhantomReference_klass), scan, CHECK);

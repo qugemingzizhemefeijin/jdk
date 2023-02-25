@@ -2504,7 +2504,7 @@ methodHandle ClassFileParser::parse_method(bool is_interface,
   // 这里判断当前的方法是否是存在finalize方法
   if (name == vmSymbols::finalize_method_name() &&
       signature == vmSymbols::void_method_signature()) {
-    // 如果方法体不为空，则此类为Finalizer类
+    // 如果方法体不为空，则此类为Finalizer类（method.cpp）
     if (m->is_empty_method()) {
       _has_empty_finalizer = true;
     } else {

@@ -139,6 +139,7 @@ public:
   inline oop referent() const { return _referent; }
 
   // Returns true if referent is alive.
+  // 判断_referent对象是否活跃
   inline bool is_referent_alive() const {
     return _is_alive->do_object_b(_referent);
   }
@@ -165,6 +166,7 @@ public:
 
   // Make the referent alive.
   inline void make_referent_alive() {
+    // 判断是否开启了指针压缩
     if (UseCompressedOops) {
       _keep_alive->do_oop((narrowOop*)_referent_addr);
     } else {
@@ -197,6 +199,8 @@ public:
 
   inline void move_to_next() {
     if (_ref == _next) {
+      // 由于DiscoveredList列表的最后一个Reference对象的_next属性指向自己， 因此
+      // 当_ref等于_next时表示列表已经遍历完成
       // End of the list.
       _ref = NULL;
     } else {

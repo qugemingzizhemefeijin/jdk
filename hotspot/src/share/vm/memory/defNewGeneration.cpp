@@ -621,23 +621,29 @@ void DefNewGeneration::collect(bool   full,
 
   int so = SharedHeap::SO_AllClasses | SharedHeap::SO_Strings | SharedHeap::SO_CodeCache;
 
-  gch->gen_process_strong_roots(_level,
+  /*
+   * 调用GenCollectedHeap类的gen_process_strong_roots()函数找出所有的根引用标记并复制，
+   * 接着调用DefNewGeneration::FastEvacuateFollowersClosure::do_void()函数从已经标记的直接由根引用的对象出发，使用广度遍历标记所有对象并复制，这样就完成了YGC任务。
+  */
+  // 标记根集对象并复制到To Survivor空间中
+  gch->gen_process_strong_roots(_level,                                     // 执行YGC和FGC时， 此值都为1
                                 true,  // Process younger gens, if any,
                                        // as strong roots.
                                 true,  // activate StrongRootsScope
-                                true,  // is scavenging
-                                SharedHeap::ScanningOption(so),
-                                &fsc_with_no_gc_barrier,
+                                true,  // is scavenging                     // 执行对象复制操作
+                                SharedHeap::ScanningOption(so),             //
+                                &fsc_with_no_gc_barrier,                    // 类型为FastScanClosure
                                 true,   // walk *all* scavengable nmethods
-                                &fsc_with_gc_barrier,
-                                &klass_scan_closure);
+                                &fsc_with_gc_barrier,                       // 类型为FastScanClosure
+                                &klass_scan_closure);                       // 类型为KlassScanClosure
 
-  // "evacuate followers".
+  // "evacuate followers". 递归标记并复制对象
   evacuate_followers.do_void();
 
-  FastKeepAliveClosure keep_alive(this, &scan_weak_ref);
+  FastKeepAliveClosure keep_alive(this, &scan_weak_ref); // 处理发现的引用类型对象
   ReferenceProcessor* rp = ref_processor();
   rp->setup_policy(clear_all_soft_refs);
+  // 调用此函数时，年轻代的所有对象都完成了标记阶段，这时候能够准确判断出对象是否可达，不同的引用类型的判断逻辑不一样。
   const ReferenceProcessorStats& stats =
   rp->process_discovered_references(&is_alive, &keep_alive, &evacuate_followers,
                                     NULL, _gc_timer);

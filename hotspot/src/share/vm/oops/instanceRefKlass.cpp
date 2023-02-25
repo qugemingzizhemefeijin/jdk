@@ -220,6 +220,7 @@ template <class T> void trace_reference_gc(const char *s, oop obj,
 #endif
 
 template <class T> void specialized_oop_adjust_pointers(InstanceRefKlass *ref, oop obj) {
+  // 当调用到oop_adjust_pointers()函数时， 引用类型引用的对象一定是活跃的， 因此同步更新Reference对象的referent、 next与discovered属性。
   T* referent_addr = (T*)java_lang_ref_Reference::referent_addr(obj);
   MarkSweep::adjust_pointer(referent_addr);
   T* next_addr = (T*)java_lang_ref_Reference::next_addr(obj);
@@ -233,7 +234,7 @@ template <class T> void specialized_oop_adjust_pointers(InstanceRefKlass *ref, o
 int InstanceRefKlass::oop_adjust_pointers(oop obj) {
   int size = size_helper();
   InstanceKlass::oop_adjust_pointers(obj);
-
+  // 判断是否启动了指针压缩
   if (UseCompressedOops) {
     specialized_oop_adjust_pointers<narrowOop>(this, obj);
   } else {
@@ -253,10 +254,10 @@ int InstanceRefKlass::oop_adjust_pointers(oop obj) {
   ReferenceProcessor* rp = closure->_ref_processor;                             \
   if (!oopDesc::is_null(heap_oop)) {                                            \
     oop referent = oopDesc::decode_heap_oop_not_null(heap_oop);                 \
-    if (!referent->is_gc_marked() && (rp != NULL) &&                            \
-        rp->discover_reference(obj, reference_type())) {                        \
+    if (!referent->is_gc_marked() && (rp != NULL) &&                            \ // 被引用的对象可能已经不可达了，所以调用discover_reference()函数处理。
+        rp->discover_reference(obj, reference_type())) {                        \ // hotspot/src/share/vm/memory/referenceProcessor.cpp  discover_reference 方法
       return size;                                                              \
-    } else if (contains(referent_addr)) {                                       \
+    } else if (contains(referent_addr)) {                                       \ // 如果是YGC，当被引用的对象在年轻代时不需要进行特殊处理，而需要和其他被强引用的对象做一样的处理逻辑即可
       /* treat referent as normal oop */                                        \
       SpecializationStats::record_do_oop_call##nv_suffix(SpecializationStats::irk);\
       closure->do_oop##nv_suffix(referent_addr);                                \
@@ -447,6 +448,7 @@ int InstanceRefKlass::oop_update_pointers(ParCompactionManager* cm, oop obj) {
 }
 #endif // INCLUDE_ALL_GCS
 
+//
 void InstanceRefKlass::update_nonstatic_oop_maps(Klass* k) {
   // Clear the nonstatic oop-map entries corresponding to referent
   // and nextPending field.  They are treated specially by the
@@ -478,6 +480,10 @@ void InstanceRefKlass::update_nonstatic_oop_maps(Klass* k) {
            "just checking");
 
     // Update map to (3,1) - point to offset of 3 (words) with 1 map entry.
+    // 更新OopMapBlock信息，这样只会遍历引用对象的queue变量
+    // OopMapBlock可以帮助GC在标记过程中找到对象引用的其他对象，当遍历Reference对象时也会用到OopMapBlock，但是这个OopMapBlock是经过更新的。
+    // 正常情况下referent、 queue、 next和discovered变量都会被遍历标记，
+    // 但是经过更新InstanceRefKlass中的OopMapBlock后，只会遍历queue变量引用的对象，这样就不会由于Reference的存在而导致referent等变为强引用了。
     map->set_offset(java_lang_ref_Reference::queue_offset);
     map->set_count(1);
   }
