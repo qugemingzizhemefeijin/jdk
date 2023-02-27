@@ -1,6 +1,6 @@
 # maven ignore
 target/
-hotspot/cmake-build-debug/
+cmake-build-debug/
 *.jar
 *.war
 *.zip
