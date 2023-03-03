@@ -39,6 +39,7 @@
 
 Generation* GenerationSpec::init(ReservedSpace rs, int level,
                                  GenRemSet* remset) {
+  // 根据名称初始化对应的内存带代
   switch (name()) {
     case Generation::DefNew:
       return new DefNewGeneration(rs, init_size(), level);

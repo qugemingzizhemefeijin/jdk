@@ -32,13 +32,19 @@ class klassVtable;
 
 // ArrayKlass is the abstract baseclass for all array classes
 
+// 所有数组类的抽象基类
 class ArrayKlass: public Klass {
   friend class VMStructs;
  private:
+  // 当前实例表示的是n维的数组
   int      _dimension;         // This is n'th-dimensional array.
+  // 指向n+1维的数组
   Klass* volatile _higher_dimension;  // Refers the (n+1)'th-dimensional array (if present).
+  // 指向n-1维的数组
   Klass* volatile _lower_dimension;   // Refers the (n-1)'th-dimensional array (if present).
+  // vtable的大小
   int      _vtable_len;        // size of vtable for this klass
+  // 组件类型对应的java.lang.Class对象
   oop      _component_mirror;  // component type, as a java/lang/Class
 
  protected:

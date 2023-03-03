@@ -37,12 +37,21 @@
 // instances and need special logic for computing their size and for
 // iteration of their oops.
 
-
+// InstanceMirrorKlass类实例表示java.lang.Class类。
+// java类及对象在Hotspot VM中的表示形式
+// java.lang.Object等类       通过InstanceKlass等实例表示这些类
+// java.lang.Class对象        通过oop实例表示这个对象
+// java.lang.Class类          通过InstanceMirrorKlass实例表示这个类
 class InstanceMirrorKlass: public InstanceKlass {
   friend class VMStructs;
   friend class InstanceKlass;
 
  private:
+  // 正常情况下，HotSpot VM使用Klass表示Java类，用oop表示Java对象。
+  // 而Java类中可能定义了静态或非静态字段，因此将非静态字段值存储在oop中，静态字段值存储在表示当前Java类的java.lang.Class对象中。
+
+  // Class类比较特殊，是用InstanceMirrorKlass实例表示，但是Class对象是用oop对象表示的。由于本身Class类也定义了静态字段，这些值同样存储在oop对象中。
+  // 这样静态和非静态字段就存储在一个oop上，需要参考 _offset_of_static_fields 属性的值进行偏移来定位静态字段的存储位置。
   static int _offset_of_static_fields;
 
   // Constructor
@@ -69,9 +78,11 @@ class InstanceMirrorKlass: public InstanceKlass {
     return (HeapWord*)(cast_from_oop<intptr_t>(obj) + offset_of_static_fields());
   }
 
+  // 初始化静态字段的偏移量值
   static void init_offset_of_static_fields() {
     // Cache the offset of the static fields in the Class instance
     assert(_offset_of_static_fields == 0, "once");
+    // 调用size_helper()函数获取oop（表示java.lang.Class对象）的大小，左移3位将字转换为字节。 紧接着oop后开始存储静态字段的值。
     _offset_of_static_fields = InstanceMirrorKlass::cast(SystemDictionary::Class_klass())->size_helper() << LogHeapWordSize;
   }
 

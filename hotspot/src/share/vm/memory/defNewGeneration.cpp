@@ -571,10 +571,12 @@ void DefNewGeneration::collect(bool   full,
   // If the next generation is too full to accommodate promotion
   // from this generation, pass on collection; let the next generation
   // do it.
+  // 返回true: to()空间空闲 && 某个代的剩余空间能够容下本次垃圾回收需要的空间
   if (!collection_attempt_is_safe()) {
     if (Verbose && PrintGCDetails) {
       gclog_or_tty->print(" :: Collection attempt not safe :: ");
     }
+    // 告诉内存堆管理器不要再考虑增量式GC(Minor Gc),因为一定会失败
     gch->set_incremental_collection_failed(); // Slight lie: we did not even attempt one
     return;
   }
@@ -895,20 +897,27 @@ void DefNewGeneration::reset_scratch() {
   }
 }
 
+// DefNewGeneration正式进行Gc前会先检测一下本次Minor Gc是否安全, 如果不安全则直接放弃本次Gc,检查策略是:
+// 1. To区空闲
+// 2. 下一个内存代的可用空间能够容纳当前内存代的所有对象(用于对象升级)
 bool DefNewGeneration::collection_attempt_is_safe() {
-  if (!to()->is_empty()) {
+  if (!to()->is_empty()) { // To Survivor 区空闲
     if (Verbose && PrintGCDetails) {
       gclog_or_tty->print(" :: to is not empty :: ");
     }
+    // 如果to区非空则返回false，正常都是空的
     return false;
   }
   if (_next_gen == NULL) {
+    // 初始化_next_gen，DefNewGeneration第一次准备垃圾回收前_next_gen一直为nul
     GenCollectedHeap* gch = GenCollectedHeap::heap();
     _next_gen = gch->next_gen(this);
   }
+  // 判断next_gen是否有充足的空间，允许年轻代的对象复制到老年代中
   return _next_gen->promotion_attempt_is_safe(used());
 }
 
+// gc_epilogue是在GC结束后调用的尾处理
 void DefNewGeneration::gc_epilogue(bool full) {
   DEBUG_ONLY(static bool seen_incremental_collection_failed = false;)
 
@@ -920,12 +929,15 @@ void DefNewGeneration::gc_epilogue(bool full) {
   GenCollectedHeap* gch = GenCollectedHeap::heap();
   if (full) {
     DEBUG_ONLY(seen_incremental_collection_failed = false;)
+    // 正常情况下GC结束后eden区是空的，如果非空说明堆内存满了，eden区中的存活对象未拷贝至老年代中
     if (!collection_attempt_is_safe() && !_eden_space->is_empty()) {
       if (Verbose && PrintGCDetails) {
         gclog_or_tty->print("DefNewEpilogue: cause(%s), full, not safe, set_failed, set_alloc_from, clear_seen",
                             GCCause::to_string(gch->gc_cause()));
       }
+      // 通知GCH promote事变
       gch->set_incremental_collection_failed(); // Slight lie: a full gc left us in that state
+      // 允许使用from区分配对象
       set_should_allocate_from_space(); // we seem to be running out of space
     } else {
       if (Verbose && PrintGCDetails) {
@@ -965,12 +977,15 @@ void DefNewGeneration::gc_epilogue(bool full) {
   }
 
   if (ZapUnusedHeapArea) {
+    // check_mangled_unused_area_complete 对起止地址之间的整块内存区域都执行了mangle，
+    // 因为需要遍历一遍整块内存区域，所以比较费时，只在调试mangle(DEBUG_MANGLING标志)下开启，否则该方法是空实现。
     eden()->check_mangled_unused_area_complete();
     from()->check_mangled_unused_area_complete();
     to()->check_mangled_unused_area_complete();
   }
 
   if (!CleanChunkPoolAsync) {
+    // 清空ChunkPool
     Chunk::clean_chunk_pool();
   }
 
@@ -1083,6 +1098,7 @@ HeapWord* DefNewGeneration::par_allocate(size_t word_size,
   return res;
 }
 
+// gc_prologue方法是在GC开始前调用的预处理
 void DefNewGeneration::gc_prologue(bool full) {
   // Ensure that _end and _soft_end are the same in eden space.
   eden()->set_soft_end(eden()->end());

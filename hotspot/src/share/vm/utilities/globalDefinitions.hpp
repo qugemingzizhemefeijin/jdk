@@ -448,6 +448,7 @@ inline bool is_object_aligned(intptr_t addr) {
 
 // Pad out certain offsets to jlong alignment, in HeapWord units.
 
+// 内存对齐，方便对内存进行高效操作
 inline intptr_t align_object_offset(intptr_t offset) {
   return align_size_up(offset, HeapWordsPerLong);
 }

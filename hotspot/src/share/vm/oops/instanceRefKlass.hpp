@@ -44,7 +44,7 @@
 // are linked to the static pending_list in class java/lang/ref/Reference,
 // and the pending list lock object in the same class is notified.
 
-
+// 表示引用类型，参考枚举: referenceType.hpp
 class InstanceRefKlass: public InstanceKlass {
   friend class InstanceKlass;
 

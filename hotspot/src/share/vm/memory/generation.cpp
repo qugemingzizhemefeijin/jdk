@@ -170,9 +170,10 @@ Generation* Generation::next_gen() const {
   }
 }
 
+// max取可用空间多的Generation
 size_t Generation::max_contiguous_available() const {
   // The largest number of contiguous free words in this or any higher generation.
-  size_t max = 0;
+  size_t max = 0; // 取可用空间多的代的剩余空间(只取1个Generation)
   for (const Generation* gen = this; gen != NULL; gen = gen->next_gen()) {
     size_t avail = gen->contiguous_available();
     if (avail > max) {
@@ -182,16 +183,17 @@ size_t Generation::max_contiguous_available() const {
   return max;
 }
 
+// 返回true:空间够了 false:空间不够
 bool Generation::promotion_attempt_is_safe(size_t max_promotion_in_bytes) const {
-  size_t available = max_contiguous_available();
-  bool   res = (available >= max_promotion_in_bytes);
+  size_t available = max_contiguous_available(); // 剩余可用内存(取可用空间多的代的剩余空间)
+  bool   res = (available >= max_promotion_in_bytes); // max_promotion_in_bytes:本次垃圾回收需要最大空间
   if (PrintGC && Verbose) {
     gclog_or_tty->print_cr(
       "Generation: promo attempt is%s safe: available("SIZE_FORMAT") %s max_promo("SIZE_FORMAT")",
       res? "":" not", available, res? ">=":"<",
       max_promotion_in_bytes);
   }
-  return res;
+  return res; // true:空间够了 false:空间不够
 }
 
 // Ignores "ref" and calls allocate().

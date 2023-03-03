@@ -64,6 +64,7 @@ bool Klass::is_subclass_of(const Klass* k) const {
   return false;
 }
 
+// 父类不在子类的_primary_supers的属性中，需要经过_secondary_supers属性来判断。
 bool Klass::search_secondary_supers(Klass* k) const {
   // Put some extra logic here out-of-line, before the search proper.
   // This cuts down the size of the inline method.
@@ -72,8 +73,10 @@ bool Klass::search_secondary_supers(Klass* k) const {
   if (this == k)
     return true;
   // Scan the array-of-objects for a match
+  // 通过_secondary_supers中存储的信息进行判断
   int cnt = secondary_supers()->length();
   for (int i = 0; i < cnt; i++) {
+    // 判断k是否是当前类的父类，如果是的话，顺便缓存一下父类信息到_secondary_super_cache。(空间换时间)
     if (secondary_supers()->at(i) == k) {
       ((Klass*)this)->set_secondary_super_cache(k);
       return true;
@@ -139,7 +142,11 @@ Method* Klass::uncached_lookup_method(Symbol* name, Symbol* signature) const {
   return NULL;
 }
 
+// 重载了new运算符开辟C++类实例的内存空间
+// 对于OpenJDK 8来说，Klass实例在元数据区分配内存。Klass一般不会卸载，
+// 因此没有放到堆中进行管理，堆是垃圾收集器回收的重点，将类的元数据放到堆中时回收的效率会降低。
 void* Klass::operator new(size_t size, ClassLoaderData* loader_data, size_t word_size, TRAPS) throw() {
+  // 在元数据区分配内存空间
   return Metaspace::allocate(loader_data, word_size, /*read_only*/false,
                              MetaspaceObj::ClassType, CHECK_NULL);
 }
@@ -179,13 +186,19 @@ Klass::Klass() {
   clear_accumulated_modified_oops();
 }
 
+// etype 表示数组元素的类型
 jint Klass::array_layout_helper(BasicType etype) {
   assert(etype >= T_BOOLEAN && etype <= T_OBJECT, "valid etype");
   // Note that T_ARRAY is not allowed here.
+  // hsize表示数组头元素的字节数， 调用 arrayOopDesc::base_offset_in_bytes() 及相关函数可以获取hsize的值。
   int  hsize = arrayOopDesc::base_offset_in_bytes(etype);
+  // Java基本类型元素需要占用的字节数（表示数组元素的大小）
   int  esize = type2aelembytes(etype);
   bool isobj = (etype == T_OBJECT);
+  // 如果数组元素的类型为对象类型， 则值为0x80， 否则值为0xC0， 表示数组元素的类型为Java基本类型。
   int  tag   =  isobj ? _lh_array_tag_obj_value : _lh_array_tag_type_value;
+  // 最终计算出来的数组类型的_layout_helper值为负数， 因为最高位为1，
+  // 而对象类型通常是一个正数， 这样就可以简单地通过判断_layout_helper值来区分数组和对象。
   int lh = array_layout_helper(tag, hsize, etype, exact_log2(esize));
 
   assert(lh < (int)_lh_neutral_value, "must look like an array layout");
@@ -199,6 +212,7 @@ jint Klass::array_layout_helper(BasicType etype) {
   return lh;
 }
 
+// 判断当前的类是否能够直接使用父类的继承链
 bool Klass::can_be_primary_super_slow() const {
   if (super() == NULL)
     return true;
@@ -208,36 +222,48 @@ bool Klass::can_be_primary_super_slow() const {
     return true;
 }
 
+// 初始化类的父类信息
+// k -> 当前类的直接父类
 void Klass::initialize_supers(Klass* k, TRAPS) {
   if (FastSuperclassLimit == 0) {
     // None of the other machinery matters.
     set_super(k);
     return;
   }
+  // 当前类的父类可能为NULL，例如Object的父类为NULL
   if (k == NULL) {
     set_super(NULL);
     _primary_supers[0] = this;
     assert(super_depth() == 0, "Object must already be initialized properly");
+  // k就是当前类的直接父类，如果有父类，那么super()一般为NULL，如果k为NULL，那么就是Object类
   } else if (k != super() || k == SystemDictionary::Object_klass()) {
     assert(super() == NULL || super() == SystemDictionary::Object_klass(),
            "initialize this only once to a non-trivial value");
+    // 设置Klass的_super属性
     set_super(k);
     Klass* sup = k;
+    // 直接获取父类的继承深度
     int sup_depth = sup->super_depth();
+    // 调用primary_super_limit()函数得到的默认值为8，这个是记录当前类的继承深度（包含自己），计算本类的继承深度最小值。
     juint my_depth  = MIN2(sup_depth + 1, (int)primary_super_limit());
+    // 当父类的继承链长度大于等于primary_super_limit()时，当前的深度只能是primary_super_limit()，也就是8，因为其中最多只能保存8个类。
     if (!can_be_primary_super_slow())
       my_depth = primary_super_limit();
+    // my_depth最多将8个父类的继承类（多了就溢出了）复制到_primary_supers中， 因为直接父类和当前子类肯定有共同的继承链
     for (juint i = 0; i < my_depth; i++) {
       _primary_supers[i] = sup->_primary_supers[i];
     }
     Klass* *super_check_cell;
     if (my_depth < primary_super_limit()) {
+      // 将当前类存储在_primary_supers中
       _primary_supers[my_depth] = this;
       super_check_cell = &_primary_supers[my_depth];
     } else {
       // Overflow of the primary_supers array forces me to be secondary.
+      // 需要将部分父类放入_secondary_supers数组中
       super_check_cell = &_secondary_super_cache;
     }
+    // 设置Klass类中的_super_check_offset属性
     set_super_check_offset((address)super_check_cell - (address) this);
 
 #ifdef ASSERT
@@ -262,14 +288,19 @@ void Klass::initialize_supers(Klass* k, TRAPS) {
 #endif
   }
 
+  // 开始设置 _secondary_supers 属性
   if (secondary_supers() == NULL) {
+    // 为了方便循环，将自己放到一个临时的KlassHandle中作为父类
     KlassHandle this_kh (THREAD, this);
 
     // Now compute the list of secondary supertypes.
     // Secondaries can occasionally be on the super chain,
     // if the inline "_primary_supers" array overflows.
+    // 计算出需要存储到_secondary_supers属性中的继承链数量。（_primary_supers已经存储了8个父类了，多余其他的存储不下了，包括自己）
     int extras = 0;
     Klass* p;
+    // 当p不为NULL并且p已经存储在_secondary_supers数组中时，条件为true，
+    // 也就是当前类的父类多于8个时，需要将多出来的父类存储到_secondary_supers数组中
     for (p = super(); !(p == NULL || p->can_be_primary_super()); p = p->super()) {
       ++extras;
     }
@@ -277,14 +308,16 @@ void Klass::initialize_supers(Klass* k, TRAPS) {
     ResourceMark rm(THREAD);  // need to reclaim GrowableArrays allocated below
 
     // Compute the "real" non-extra secondaries.
+    // 计算secondaries的大小，因为secondaries数组中还需要存储当前类型的所有实现接口（包括直接和间接实现的接口）
     GrowableArray<Klass*>* secondaries = compute_secondary_supers(extras);
     if (secondaries == NULL) {
       // secondary_supers set by compute_secondary_supers
       return;
     }
 
+    // 将无法存储在_primary_supers中的类暂时存储在primaries中
     GrowableArray<Klass*>* primaries = new GrowableArray<Klass*>(extras);
-
+    // this_kh->super() 就是获取当前自己本身
     for (p = this_kh->super(); !(p == NULL || p->can_be_primary_super()); p = p->super()) {
       int i;                    // Scan for overflow primaries being duplicates of 2nd'arys
 
@@ -301,6 +334,7 @@ void Klass::initialize_supers(Klass* k, TRAPS) {
       }
       if( i < secondaries->length() )
         continue;               // It's a dup, don't put it in
+      // 子类优先push到集合中
       primaries->push(p);
     }
     // Combine the two arrays into a metadata object to pack the array.
@@ -310,8 +344,11 @@ void Klass::initialize_supers(Klass* k, TRAPS) {
                                        class_loader_data(), new_length, CHECK);
     int fill_p = primaries->length();
     for (int j = 0; j < fill_p; j++) {
+      // 这样的设置会让父类永远在数组前，而子类永远在数组后（父类先弹出，这样_secondary_supers就与_primary_supers顺序一样了）
+      // 父类在前->子类->this，如：Throwable -> Exception -> IOException
       s2->at_put(j, primaries->pop());  // add primaries in reverse order.
     }
+    // 类的部分存储在数组的前面，接口存储在数组的后面
     for( int j = 0; j < secondaries->length(); j++ ) {
       s2->at_put(j+fill_p, secondaries->at(j));  // add secondaries on the end.
     }
@@ -323,7 +360,7 @@ void Klass::initialize_supers(Klass* k, TRAPS) {
     }
   #endif
 
-    this_kh->set_secondary_supers(s2);
+    this_kh->set_secondary_supers(s2); // 设置_secondary_supers属性
   }
 }
 
@@ -357,21 +394,23 @@ void Klass::set_next_sibling(Klass* s) {
   _next_sibling = s;
 }
 
+// 设置Klass中的 _next_sibling 与 _subklass 属性
 void Klass::append_to_sibling_list() {
   debug_only(verify();)
   // add ourselves to superklass' subklass list
-  InstanceKlass* super = superklass();
-  if (super == NULL) return;        // special case: class Object
+  InstanceKlass* super = superklass(); // 获取 _super 属性的值
+  if (super == NULL) return;        // special case: class Object // 如果Klass实例表示的是Object类， 此类没有超类
   assert((!super->is_interface()    // interfaces cannot be supers
           && (super->superklass() == NULL || !is_interface())),
          "an interface can only be a subklass of Object");
+  // super可能有多个子类，多个子类会用 _next_sibling 属性连接成单链表，当前的类是链表头元素获取 _subklass 属性的值
   Klass* prev_first_subklass = super->subklass_oop();
   if (prev_first_subklass != NULL) {
     // set our sibling to be the superklass' previous first subklass
-    set_next_sibling(prev_first_subklass);
+    set_next_sibling(prev_first_subklass); // 设置 _next_sibling 属性的值
   }
   // make ourselves the superklass' first subklass
-  super->set_subklass(this);
+  super->set_subklass(this); // 设置 _subklass 属性的值
   debug_only(verify();)
 }
 

@@ -135,6 +135,11 @@ class OopMapBlock VALUE_OBJ_CLASS_SPEC {
 
 struct JvmtiCachedClassFileData;
 
+// 每个InstanceKlass实例都表示一个具体的Java类型（这里的Java类型不包括Java数组类型） 。
+// InstanceKlass类共有3个直接子类，分别是InstanceRefKlass、InstanceMirrorKlass和InstanceClassLoaderClass。
+// InstanceRefKlass: java.lang.ref.Reference类需要使用C++类的InstanceRefKlass的实例来表示，在创建这个类的实例时，_reference_type字段
+//                   （定义在InstanceKlass类中）的值通常会指明Reference类表示的是那种引用类型。枚举：ReferenceType，referenceType.hpp
+// InstanceMirrorKlass: 表示java.lang.Class类，这个类中新增了一个静态属性 _offset_of_static_fields，用来保存静态字段的起始偏移量。
 class InstanceKlass: public Klass {
   friend class VMStructs;
   friend class ClassFileParser;
@@ -150,6 +155,7 @@ class InstanceKlass: public Klass {
                 AccessFlags access_flags,
                 bool is_anonymous);
  public:
+  // 解析类的时候调用Klass需要分配的内存空间。
   static InstanceKlass* allocate_instance_klass(
                                           ClassLoaderData* loader_data,
                                           int vtable_len,
@@ -185,8 +191,12 @@ class InstanceKlass: public Klass {
   // Annotations for this class
   Annotations*    _annotations;
   // Array classes holding elements of this class.
+  // 数组元素为该类型的数组Klass指针。例如，当ObjArrayKlass实例表示的是数组且元素类型为Object时，
+  // 表示Object类的InstanceKlass实例的 _array_klasses 就是指向ObjArrayKlass实例的指针。
+  // 太绕了，实际就是指向此类的数组类型的Klass对象指针
   Klass*          _array_klasses;
   // Constant pool for this class.
+  // ConstantPool类型的指针，用来指向保存常量吃信息的ConstantPool示例
   ConstantPool* _constants;
   // The InnerClasses attribute and EnclosingMethod attribute. The
   // _inner_classes is an array of shorts. If the class has InnerClasses
@@ -207,20 +217,32 @@ class InstanceKlass: public Klass {
   char*           _source_debug_extension;
   // Array name derived from this class which needs unreferencing
   // if this class is unloaded.
+  // 以该类型作为数组组件类型（指的是数组去掉一个维度的类型）的数组名称，如果当前InstanceKlass实例表示Object类，则名称为[Ljava/lang/Object;
   Symbol*         _array_name;
 
   // Number of heapOopSize words used by non-static fields in this klass
   // (including inherited fields but after header_size()).
+  // 非静态字段需要占用的内存空间，以字为单位。
+  // 在为该InstanceKlass实例表示的Java类所创建的对象（使用oop表示）分配内存时，会参考此属性的值分配内存，在类解析时会事先计算好这个值。
   int             _nonstatic_field_size;
+  // 静态字段需要占用的内存空间，以字为单位。
+  // 在为该InstanceKlass实例表示的Java类所创建对应的java.lang.Class对象（使用op表示）时，会参考此属性的值分配内存，在类解析时会事先计算好这个值。
   int             _static_field_size;    // number words used by static fields (oop and non-oop) in this klass
   // Constant pool index to the utf8 entry of the Generic signature,
   // or 0 if none.
+  // 保存Java类的签名在常量池中的索引
   u2              _generic_signature_index;
   // Constant pool index to the utf8 entry for the name of source file
   // containing this klass, 0 if not specified.
+  // 保存Java类的源文件名在常量池中的索引
   u2              _source_file_name_index;
+  // Java类包含的静态引用类型字段的数量
   u2              _static_oop_field_count;// number of static oop fields in this klass
+  // Java类包含的字段总数量
   u2              _java_fields_count;    // The number of declared Java fields
+  // OopMapBlock需要占用的内存空间，以字为单位。
+  // OopMapBlock使用<偏移量，数量>描述Java类（InstanceKlass实例）中各个非静态对象（oop）类型的变量在Java对象中的具体位置，
+  // 这样垃圾回收时就能找到Java对象中引用的其他对象
   int             _nonstatic_oop_map_size;// size in words of nonstatic oop map blocks
 
   // _is_marked_dependent can be set concurrently, thus cannot be part of the
@@ -236,10 +258,15 @@ class InstanceKlass: public Klass {
     _misc_has_default_methods  = 1 << 5  // class/superclass/implemented interfaces has default methods
   };
   u2              _misc_flags;
+  // 类的次版本号
   u2              _minor_version;        // minor version number of class file
+  // 类的主版本号
   u2              _major_version;        // major version number of class file
+  // 执行Java类初始化的Thread指针
   Thread*         _init_thread;          // Pointer to current thread doing initialization (to handle recusive initialization)
+  // Java虚函数表(vtable)所占用的内存空间，以字为单位
   int             _vtable_len;           // length of Java vtable (in words)
+  // Java接口函数表(itable)所占用的内存空间，以字为单位
   int             _itable_len;           // length of Java itable (in words)
   OopMapCache*    volatile _oop_map_cache;   // OopMapCache for all methods in the klass (allocated lazily)
   MemberNameTable* _member_names;        // Member names
@@ -260,7 +287,11 @@ class InstanceKlass: public Klass {
   // Class states are defined as ClassState (see above).
   // Place the _init_state here to utilize the unused 2-byte after
   // _idnum_allocated_count.
+  // 表示类的状态，为枚举类型ClassState，定义了如下常量：
+  // allocated(已分配内存)，loaded(读取Class文件信息并加载到内存中)，linked(已经成功连接和校验)
+  // being_initialized(正在初始化)，fully_initialized(已经完成初始化)，initialization_error(初始化发生错误)
   u1              _init_state;                    // state of class
+  // 引用类型，表示当前的InstanceKlass实例的应用类型，可能是强引用、软引用和弱引用等
   u1              _reference_type;                // reference type
 
   JvmtiCachedClassFieldMap* _jvmti_cached_class_field_map;  // JVMTI: used during heap iteration
@@ -268,17 +299,22 @@ class InstanceKlass: public Klass {
   NOT_PRODUCT(int _verify_count;)  // to avoid redundant verifies
 
   // Method array.
+  // 保存方法的指针数组
   Array<Method*>* _methods;
   // Default Method Array, concrete methods inherited from interfaces
+  // 保存方法的指针数组，是从接口继承的默认方法
   Array<Method*>* _default_methods;
   // Interface (Klass*s) this class declares locally to implement.
+  // 保存接口的指针数组，是直接实现的接口Klass
   Array<Klass*>* _local_interfaces;
   // Interface (Klass*s) this class implements transitively.
+  // 保存接口的指针数组，包含 _local_interfaces 和间接实现的接口
   Array<Klass*>* _transitive_interfaces;
   // Int array containing the original order of method in the class file (for JVMTI).
   Array<int>*     _method_ordering;
   // Int array containing the vtable_indices for default_methods
   // offset matches _default_methods offset
+  // 默认方法在虚函数表中的索引
   Array<int>*     _default_vtable_indices;
 
   // Instance and static variable information, starts with 6-tuples of shorts
@@ -294,7 +330,21 @@ class InstanceKlass: public Klass {
   //     [generic signature index]
   //     [generic signature index]
   //     ...
+  // 类的字段属性，每个字段有6个属性。
+  // 分别为access,name index,sig index,initial value index,low_offset和high_offset，他们组成一个元组。
+  // access表示访问控制属性，根据name index可以获取属性名，根据initial value index可以获取初始值
+  // 根据low_offset和high_offset可以获取该属性在内存中的偏移量
+  // 保存以上所有的属性之后还可能会保存泛型签名信息
   Array<u2>*      _fields;
+
+  // 以下几个属性没有对象的属性名，不过可以通过指针偏移量的方式访问。
+  //   1.Java vtable：Java虚函数表，大小等于_vtable_len。
+  //   2.Java itable：Java接口函数表，大小等于_itable_len。
+  //   3.非静态OopMapBlock：大小等于_nonstatic_oop_map_size。当前类也会继承父类的属性，因此同样可能需要保存父类的OopMapBlock信息，
+  //        这样当前的Klass实例可能会含有多个OopMapBlock。 GC在回收垃圾时， 如果遍历某个对象所引用的其他对象， 则会依据此信息进行查找。
+  //   4.接口的实现类：只有当前Klass实例表示一个接口时才存在这个信息。如果接口没有任何实现类，则为NULL；
+  //        如果只有一个实现类， 则为该实现类的Klass指针； 如果有多个实现类，则为当前接口本身。
+  //   5.host_klass： 只在匿名类中存在， 为了支持JSR 292中的动态语言特性， 会给匿名类生成一个host_klass。
 
   // embedded Java vtable follows here
   // embedded Java itables follows here
@@ -846,20 +896,35 @@ class InstanceKlass: public Klass {
     return (super() == NULL) ? NULL : cast(super());
   }
 
+  // 计算InstanceKlass本身占用的内存空间
   // Sizing (in words)
-  static int header_size()            { return align_object_offset(sizeof(InstanceKlass)/HeapWordSize); }
+  static int header_size() {
+    // HeapWordSize在64位系统下的值为8， 也就是一个字的大小， 同时也是一个非压缩指针占用的内存空间
+    return align_object_offset(sizeof(InstanceKlass)/HeapWordSize);
+  }
 
+  // InstanceKlass实例的内存布局
+  // |----------------------------|
+  // | InstanceKlass本身占用的内存   |
+  // |         vtable             |
+  // |         itable             |
+  // |    nonstatic_oop_map       |
+  // |       接口的实现类           |
+  // |          宿主类             |
+  // |----------------------------|
+  // 计算InstanceKlass类本身占用的内存空间，创建Klass实例所需要开辟的内存空间。
   static int size(int vtable_length, int itable_length,
                   int nonstatic_oop_map_size,
                   bool is_interface, bool is_anonymous) {
+    // align_object_offset()函数进行内存对齐，方便对内存进行高效操作。
     return align_object_size(header_size() +
-           align_object_offset(vtable_length) +
-           align_object_offset(itable_length) +
-           ((is_interface || is_anonymous) ?
+           align_object_offset(vtable_length) +         // vtable占用的内存空间
+           align_object_offset(itable_length) +         // itable占用的内存空间
+           ((is_interface || is_anonymous) ?            // OopMapBlock占用的内存空间
              align_object_offset(nonstatic_oop_map_size) :
              nonstatic_oop_map_size) +
-           (is_interface ? (int)sizeof(Klass*)/HeapWordSize : 0) +
-           (is_anonymous ? (int)sizeof(Klass*)/HeapWordSize : 0));
+           (is_interface ? (int)sizeof(Klass*)/HeapWordSize : 0) +  // 针对接口存储的信息
+           (is_anonymous ? (int)sizeof(Klass*)/HeapWordSize : 0));  // 针对匿名类存储的信息
   }
   int size() const                    { return size(vtable_length(),
                                                itable_length(),
@@ -913,7 +978,11 @@ class InstanceKlass: public Klass {
   }
 
   // Use this to return the size of an instance in heap words:
+  // 获取oop对象（中定义的属性）需要占用的内存占用空间
+  // 可以通过添加虚拟机参数命令-XX:+PrintFieldLayout后，打印的java.lang.Class对象的非静态字段布局.
   int size_helper() const {
+    // 获取Klass中的 _layout_helper 属性（对象占用的内存空间在类解析过程中会计算好并存储到_layout_helper属性中。）
+    // layout_helper_to_size_helper()函数获取对象所需的内存空间
     return layout_helper_to_size_helper(layout_helper());
   }
 

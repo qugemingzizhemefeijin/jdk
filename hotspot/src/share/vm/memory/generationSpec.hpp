@@ -45,6 +45,7 @@ public:
     _max_size = max_size;
   }
 
+  // 初始化对应的内存带代，根据属性名称 _name 来初始化
   Generation* init(ReservedSpace rs, int level, GenRemSet* remset);
 
   // Accessors

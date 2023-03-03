@@ -167,6 +167,7 @@ HS_DTRACE_PROBE_DECL5(hotspot, class__initialization__end,
 
 volatile int InstanceKlass::_total_instanceKlass_count = 0;
 
+// 分配一个类的Klass占用的内存
 InstanceKlass* InstanceKlass::allocate_instance_klass(
                                               ClassLoaderData* loader_data,
                                               int vtable_len,
@@ -179,17 +180,18 @@ InstanceKlass* InstanceKlass::allocate_instance_klass(
                                               Klass* super_klass,
                                               bool is_anonymous,
                                               TRAPS) {
-
+  // 获取创建InstanceKlass实例时需要分配的内存空间
   int size = InstanceKlass::size(vtable_len, itable_len, nonstatic_oop_map_size,
                                  access_flags.is_interface(), is_anonymous);
 
   // Allocation
   InstanceKlass* ik;
-  if (rt == REF_NONE) {
+  if (rt == REF_NONE) { // 通过InstanceMirrorKlass实例表示java.lang.Class类
     if (name == vmSymbols::java_lang_Class()) {
       ik = new (loader_data, size, THREAD) InstanceMirrorKlass(
         vtable_len, itable_len, static_field_size, nonstatic_oop_map_size, rt,
         access_flags, is_anonymous);
+    // 通过InstanceClassLoaderKlass实例表示java.lang.ClassLoader或相关子类
     } else if (name == vmSymbols::java_lang_ClassLoader() ||
           (SystemDictionary::ClassLoader_klass_loaded() &&
           super_klass != NULL &&
@@ -197,12 +199,14 @@ InstanceKlass* InstanceKlass::allocate_instance_klass(
       ik = new (loader_data, size, THREAD) InstanceClassLoaderKlass(
         vtable_len, itable_len, static_field_size, nonstatic_oop_map_size, rt,
         access_flags, is_anonymous);
+    // 通过InstanceKlass实例表示普通类
     } else {
       // normal class
       ik = new (loader_data, size, THREAD) InstanceKlass(
         vtable_len, itable_len, static_field_size, nonstatic_oop_map_size, rt,
         access_flags, is_anonymous);
     }
+  // 通过InstanceRefKlass实例表示引用类型
   } else {
     // reference klass
     ik = new (loader_data, size, THREAD) InstanceRefKlass(
