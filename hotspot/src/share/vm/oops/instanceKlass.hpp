@@ -140,6 +140,15 @@ struct JvmtiCachedClassFileData;
 // InstanceRefKlass: java.lang.ref.Reference类需要使用C++类的InstanceRefKlass的实例来表示，在创建这个类的实例时，_reference_type字段
 //                   （定义在InstanceKlass类中）的值通常会指明Reference类表示的是那种引用类型。枚举：ReferenceType，referenceType.hpp
 // InstanceMirrorKlass: 表示java.lang.Class类，这个类中新增了一个静态属性 _offset_of_static_fields，用来保存静态字段的起始偏移量。
+// InstanceKlass实例的内存布局
+// |----------------------------|
+// | InstanceKlass本身占用的内存   |
+// |         vtable             |
+// |         itable             |
+// |    nonstatic_oop_map       |
+// |       接口的实现类           |
+// |          宿主类             |
+// |----------------------------|
 class InstanceKlass: public Klass {
   friend class VMStructs;
   friend class ClassFileParser;

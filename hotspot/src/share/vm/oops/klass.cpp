@@ -195,7 +195,7 @@ jint Klass::array_layout_helper(BasicType etype) {
   // Java基本类型元素需要占用的字节数（表示数组元素的大小）
   int  esize = type2aelembytes(etype);
   bool isobj = (etype == T_OBJECT);
-  // 如果数组元素的类型为对象类型， 则值为0x80， 否则值为0xC0， 表示数组元素的类型为Java基本类型。
+  // 如果数组元素的类型为对象类型， 则值为0x80000000 >> 30(-2)， 否则值为0xC0000000 >> 30(-1)， 表示数组元素的类型为Java基本类型。
   int  tag   =  isobj ? _lh_array_tag_obj_value : _lh_array_tag_type_value;
   // 最终计算出来的数组类型的_layout_helper值为负数， 因为最高位为1，
   // 而对象类型通常是一个正数， 这样就可以简单地通过判断_layout_helper值来区分数组和对象。

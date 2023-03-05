@@ -113,6 +113,8 @@ class arrayOopDesc : public oopDesc {
   // to typeArrayOop::object_size(scale, length, header_size) without causing an
   // overflow. We also need to make sure that this will not overflow a size_t on
   // 32 bit platforms when we convert it to a byte size.
+  // 返回 BasicType 数组的最大长度。长度可以通过到 typeArrayOop::object_size(scale, length, header_size）计算而不会导致溢出。
+  // 当我们将其转换为字节大小时，我们还需要确保在32位平台也不会溢出。
   static int32_t max_array_length(BasicType type) {
     assert(type >= 0 && type < T_CONFLICT, "wrong type");
     assert(type2aelembytes(type) != 0, "wrong type");

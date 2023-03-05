@@ -52,42 +52,68 @@ bool TypeArrayKlass::compute_is_subtype_of(Klass* k) {
   return element_type() == tak->element_type();
 }
 
+// 创建基本类型所对应的TypeArrayKlass
 TypeArrayKlass* TypeArrayKlass::create_klass(BasicType type,
                                       const char* name_str, TRAPS) {
+  // 在HotSpot中， 所有的字符串都通过Symbol实例来表示， 以达到重用的目的
   Symbol* sym = NULL;
   if (name_str != NULL) {
     sym = SymbolTable::new_permanent_symbol(name_str, CHECK_NULL);
   }
-
+  // 使用系统类加载器加载数组类型
   ClassLoaderData* null_loader_data = ClassLoaderData::the_null_class_loader_data();
-
+  // 创建TypeArrayKlass并完成部分属性的初始化
   TypeArrayKlass* ak = TypeArrayKlass::allocate(null_loader_data, type, sym, CHECK_NULL);
 
   // Add all classes to our internal class loader list here,
   // including classes in the bootstrap (NULL) class loader.
   // GC walks these as strong roots.
+  // 在此处将所有类添加到我们的内部类加载器列表中，在引导 （NULL） 类装入器中包含类。GC将这些作为坚强的根。
   null_loader_data->add_class(ak);
 
   // Call complete_create_array_klass after all instance variables have been initialized.
+  // 初始化所有实例变量后调用，初始化TypeArrayKlass中的属性
   complete_create_array_klass(ak, ak->super(), CHECK_NULL);
 
   return ak;
 }
 
+// 首先获取TypeArrayKlass实例需要占用的内存，然后通过重载new运算符为对象分配内存，最后调用TypeArrayKlass的构造函数初始化相关属性。
 TypeArrayKlass* TypeArrayKlass::allocate(ClassLoaderData* loader_data, BasicType type, Symbol* name, TRAPS) {
   assert(TypeArrayKlass::header_size() <= InstanceKlass::header_size(),
       "array klasses must be same size as InstanceKlass");
-
+  // 获取InstanceClass的占用空间
   int size = ArrayKlass::static_size(TypeArrayKlass::header_size());
 
   return new (loader_data, size, THREAD) TypeArrayKlass(type, name);
 }
 
+// _lh_array_tag_type_value    = ~0x00,  // 0xC0000000 >> 30 = -1
+// _lh_array_tag_obj_value     = ~0x01   // 0x80000000 >> 30 = -2
+//jint Klass::array_layout_helper(BasicType etype) {
+  // Note that T_ARRAY is not allowed here.
+  // hsize表示数组头元素的字节数， 调用 arrayOopDesc::base_offset_in_bytes() 及相关函数可以获取hsize的值。
+  // int  hsize = arrayOopDesc::base_offset_in_bytes(etype);
+  // Java基本类型元素需要占用的字节数（表示数组元素的大小）
+  // int  esize = type2aelembytes(etype);
+  // bool isobj = (etype == T_OBJECT);
+  // 如果数组元素的类型为对象类型， 则值为0x80， 否则值为0xC0， 表示数组元素的类型为Java基本类型。
+  // int  tag   =  isobj ? _lh_array_tag_obj_value : _lh_array_tag_type_value;
+  // 最终计算出来的数组类型的_layout_helper值为负数， 因为最高位为1，
+  // 而对象类型通常是一个正数， 这样就可以简单地通过判断_layout_helper值来区分数组和对象。
+  // int lh = array_layout_helper(tag, hsize, etype, exact_log2(esize));
+  //
+  // return lh;
+// }
+
+// TypeArrayKlass构造函数
 TypeArrayKlass::TypeArrayKlass(BasicType type, Symbol* name) : ArrayKlass(name) {
+  // 计算出Klass中的_layout_helper属性值
+  // array_layout_helper函数在hotspot/src/share/vm/oops/klass.cpp
   set_layout_helper(array_layout_helper(type));
   assert(oop_is_array(), "sanity");
   assert(oop_is_typeArray(), "sanity");
-
+  // 设置数组的最大长度
   set_max_length(arrayOopDesc::max_array_length(type));
   assert(size() >= TypeArrayKlass::header_size(), "bad size");
 
@@ -259,6 +285,7 @@ void TypeArrayKlass::initialize(TRAPS) {
   // initialized by calling initialize on their bottom_klass, see ObjArrayKlass::initialize
 }
 
+// 根据传入的BasicType类型来获取基本类型的字符描述，如[I,[Z,[J
 const char* TypeArrayKlass::external_name(BasicType type) {
   switch (type) {
     case T_BOOLEAN: return "[Z";

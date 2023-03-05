@@ -213,6 +213,7 @@ class Universe: AllStatic {
   static size_t _heap_used_at_last_gc;
 
   static jint initialize_heap();
+  // 创建表示基本类型的java.lang.Class对象， 该对象用oop表示， 所以_bool_mirror的类型为oop
   static void initialize_basic_type_mirrors(TRAPS);
   static void fixup_mirrors(TRAPS);
 

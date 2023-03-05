@@ -254,7 +254,12 @@ void Universe::genesis(TRAPS) {
       // determine base vtable size; without that we cannot create the array klasses
       compute_base_vtable_size();
 
+      // 当JVM启动时若配置-XX:+UseSharedSpaces,则它会通过内存映射文件的方式把classes.jsa文件的内存加载到自己的JVM进程空间中.
+      // classes.jsa对应的这一部分内存空间地址一般在永久代内存地址空间的后面.
+      // JVM这么做的目的就是让这个JVM的所有实例共享classlist中所有类的类型描述信息以达到节约物理内存的目标。
+      // 这里如果没有开启此参数（默认未开启），则会初始化基本类型的一维数组实例TypeArrayKlass。
       if (!UseSharedSpaces) {
+        // 下面的定义都是在Universe.hpp中定义的静态属性
         _boolArrayKlassObj      = TypeArrayKlass::create_klass(T_BOOLEAN, sizeof(jboolean), CHECK);
         _charArrayKlassObj      = TypeArrayKlass::create_klass(T_CHAR,    sizeof(jchar),    CHECK);
         _singleArrayKlassObj    = TypeArrayKlass::create_klass(T_FLOAT,   sizeof(jfloat),   CHECK);
@@ -326,8 +331,8 @@ void Universe::genesis(TRAPS) {
   // ordinary object arrays, _objectArrayKlass will be loaded when
   // SystemDictionary::initialize(CHECK); is run. See the extra check
   // for Object_klass_loaded in objArrayKlassKlass::allocate_objArray_klass_impl.
-  _objectArrayKlassObj = InstanceKlass::
-    cast(SystemDictionary::Object_klass())->array_klass(1, CHECK);
+  // 调用表示Object类的InstanceKlass类的array_klass()函数创建一维数组类型。参数1表示一维数组类型。
+  _objectArrayKlassObj = InstanceKlass::cast(SystemDictionary::Object_klass())->array_klass(1, CHECK);
   // OLD
   // Add the class to the class hierarchy manually to make sure that
   // its vtable is initialized after core bootstrapping is completed.
@@ -436,6 +441,7 @@ void Universe::init_self_patching_vtbl_list(void** list, int count) {
   { ConstantPool o;           add_vtable(list, &n, &o, count); }
 }
 
+// 创建表示基本类型的java.lang.Class对象， 该对象用oop表示， 所以_bool_mirror的类型为oop
 void Universe::initialize_basic_type_mirrors(TRAPS) {
     assert(_int_mirror==NULL, "basic type mirrors already initialized");
     _int_mirror     =

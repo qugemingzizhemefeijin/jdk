@@ -36,6 +36,10 @@
 #include "oops/objArrayOop.hpp"
 #include "oops/oop.inline.hpp"
 
+// 根据传入的子类的ArrayClass占用的内存空间来计算InstanceKlass需要占用的内存空间
+// 注意，header_size属性的值应该是TypeArrayKlass/ObjArrayKlass类自身占用的内存空间，但是现在获取的是InstanceKlass类自身占用的内存空间。
+// 这是因为InstanceKlass占用的内存比TypeArrayKlass大，有足够内存来存放相关数据。
+// 更重要的是，为了统一从固定的偏移位置获取vtable等信息，在实际操作Klass实例的过程中无须关心是数组还是类，直接偏移固定位置后就可获取。
 int ArrayKlass::static_size(int header_size) {
   // size of an array klass object
   assert(header_size <= InstanceKlass::header_size(), "bad header size");
@@ -89,10 +93,15 @@ ArrayKlass::ArrayKlass(Symbol* name) {
 
 // Initialization of vtables and mirror object is done separatly from base_create_array_klass,
 // since a GC can happen. At this point all instance variables of the ArrayKlass must be setup.
+// vtables和镜像对象的初始化与 base_create_array_klass 分开完成，因为 GC 可能会发生。此时必须设置 ArrayKlass 的所有实例变量。
 void ArrayKlass::complete_create_array_klass(ArrayKlass* k, KlassHandle super_klass, TRAPS) {
   ResourceMark rm(THREAD);
+  // 初始化_primary_supers、 _super_check_offset、vtable表等属性。
   k->initialize_supers(super_klass(), CHECK);
+  // 初始化虚函数表
   k->vtable()->initialize_vtable(false, CHECK);
+  // create_mirror()函数对 _component_mirror 属性进行设置
+  // hotspot/src/share/vm/classfile/javaClasses.cpp
   java_lang_Class::create_mirror(k, Handle(NULL), CHECK);
 }
 

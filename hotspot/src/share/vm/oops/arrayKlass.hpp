@@ -33,6 +33,14 @@ class klassVtable;
 // ArrayKlass is the abstract baseclass for all array classes
 
 // 所有数组类的抽象基类
+// 数组元素类型（Element Type）指的是数组去掉所有纬度的类型
+// 数组的组件类型（Component Type）指的是数组去掉一个维度的类型
+
+// Java类与一维、二维数组之间的关系
+// InstanceKlass #_array_klass -> ObjArrayKlass(1) #element_klass,#_bottom_klass -> InstanceKlass
+// ObjArrayKlass(1) #_array_klass -> ObjArrayKlass(2) #_element_klass -> ObjArrayKlass(1)
+// ObjArrayKlass(2) #_bottom_klass -> InstanceKlass
+// InstanceKlass #_array_klass -> ObjArrayKlass(1) #_array_klass -> ObjArrayKlass(2) #_bottom_klass -> InstanceKlass
 class ArrayKlass: public Klass {
   friend class VMStructs;
  private:
@@ -42,9 +50,9 @@ class ArrayKlass: public Klass {
   Klass* volatile _higher_dimension;  // Refers the (n+1)'th-dimensional array (if present).
   // 指向n-1维的数组
   Klass* volatile _lower_dimension;   // Refers the (n-1)'th-dimensional array (if present).
-  // vtable的大小
+  // vtable的长度
   int      _vtable_len;        // size of vtable for this klass
-  // 组件类型对应的java.lang.Class对象
+  // 数组的组件类型对应的java.lang.Class对象的oop
   oop      _component_mirror;  // component type, as a java/lang/Class
 
  protected:
@@ -59,6 +67,7 @@ class ArrayKlass: public Klass {
   bool oop_is_array_slow() const { return true; }
 
   // Instance variables
+  // 获取数组的维度
   int dimension() const                 { return _dimension;      }
   void set_dimension(int dimension)     { _dimension = dimension; }
 

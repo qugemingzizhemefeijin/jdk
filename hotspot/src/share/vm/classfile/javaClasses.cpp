@@ -550,6 +550,7 @@ void java_lang_Class::fixup_mirror(KlassHandle k, TRAPS) {
   create_mirror(k, Handle(NULL), CHECK);
 }
 
+// 创建java.lang.Class的JVM镜像对象，还初始化了java.lang.Class对象中静态字段的值， 这样静态字段就可以正常使用了。
 oop java_lang_Class::create_mirror(KlassHandle k, Handle protection_domain, TRAPS) {
   assert(k->java_mirror() == NULL, "should only assign mirror once");
   // Use this moment of initialization to cache modifier_flags also,
@@ -568,10 +569,13 @@ oop java_lang_Class::create_mirror(KlassHandle k, Handle protection_domain, TRAP
     java_lang_Class::set_static_oop_field_count(mirror(), mk->compute_static_oop_field_count(mirror()));
 
     // It might also have a component mirror.  This mirror must already exist.
+    // 当k是TypeArrayKlass实例时，调用Universe::java_mirror()函数获取对应类型type的mirror值；
+    // 当k为ObjArrayKlass实例时，获取的是组件类型的_java_mirror属性值。
     if (k->oop_is_array()) {
       Handle comp_mirror;
       if (k->oop_is_typeArray()) {
         BasicType type = TypeArrayKlass::cast(k())->element_type();
+        // 从Universe::java_mirror()函数获取对应类型type的mirror值；
         comp_mirror = Universe::java_mirror(type);
       } else {
         assert(k->oop_is_objArray(), "Must be");
@@ -581,8 +585,10 @@ oop java_lang_Class::create_mirror(KlassHandle k, Handle protection_domain, TRAP
       }
       assert(comp_mirror.not_null(), "must have a mirror");
 
-        // Two-way link between the array klass and its component mirror:
+      // Two-way link between the array klass and its component mirror:
+      // 这里设置ArrayKlass中的_component_mirror属性
       ArrayKlass::cast(k())->set_component_mirror(comp_mirror());
+      // 设置Class oop中的 _array_klass_offset 属性
       set_array_klass(comp_mirror(), k());
     } else {
       assert(k->oop_is_instance(), "Must be");
@@ -597,6 +603,7 @@ oop java_lang_Class::create_mirror(KlassHandle k, Handle protection_domain, TRAP
       set_protection_domain(mirror(), protection_domain());
 
       // Initialize static fields
+      // 初始化本地静态字段的值， 静态字段存储在java.lang.Class对象中
       InstanceKlass::cast(k())->do_local_static_fields(&initialize_static_field, CHECK_NULL);
     }
     return mirror();
@@ -657,10 +664,11 @@ void java_lang_Class::set_signers(oop java_class, objArrayOop signers) {
   java_class->obj_field_put(_signers_offset, (oop)signers);
 }
 
-
+// 创建基本类型的java.lang.Class对象，该对象用oop表示
 oop java_lang_Class::create_basic_type_mirror(const char* basic_type_name, BasicType type, TRAPS) {
   // This should be improved by adding a field at the Java level or by
   // introducing a new VM klass (see comment in ClassFileParser)
+  // InstanceMirrorKlass实例（表示java.lang.Class类）来创建oop。
   oop java_class = InstanceMirrorKlass::cast(SystemDictionary::Class_klass())->allocate_instance(NULL, CHECK_0);
   if (type != T_VOID) {
     Klass* aklass = Universe::typeArrayKlassObj(type);
@@ -745,7 +753,7 @@ Klass* java_lang_Class::array_klass(oop java_class) {
   return k;
 }
 
-
+// 设置 _array_klass_offset 字段
 void java_lang_Class::set_array_klass(oop java_class, Klass* klass) {
   assert(klass->is_klass() && klass->oop_is_array(), "should be array klass");
   java_class->metadata_field_put(_array_klass_offset, klass);

@@ -1133,6 +1133,7 @@ Klass* InstanceKlass::array_klass_impl(bool or_null, int n, TRAPS) {
 }
 
 Klass* InstanceKlass::array_klass_impl(instanceKlassHandle this_oop, bool or_null, int n, TRAPS) {
+  // 当 _array_klass 为NULL时， 表示首次以Klass为组件类型创建高一维的数组。
   if (this_oop->array_klasses() == NULL) {
     if (or_null) return NULL;
 
@@ -1140,17 +1141,22 @@ Klass* InstanceKlass::array_klass_impl(instanceKlassHandle this_oop, bool or_nul
     JavaThread *jt = (JavaThread *)THREAD;
     {
       // Atomic creation of array_klasses
+      // 通过锁保证创建一维数组类型的原子性
       MutexLocker mc(Compile_lock, THREAD);   // for vtables
       MutexLocker ma(MultiArray_lock, THREAD);
 
       // Check if update has already taken place
       if (this_oop->array_klasses() == NULL) {
+        // 创建以当前InstanceKlass实例为基本类型的一维类型数组，创建成功后保存到 _array_klasses 属性中，避免下次再重新创建。
         Klass*    k = ObjArrayKlass::allocate_objArray_klass(this_oop->class_loader_data(), 1, this_oop, CHECK_NULL);
         this_oop->set_array_klasses(k);
       }
     }
   }
   // _this will always be set at this point
+  // 创建了以InstanceKlass实例为基本类型的一维数组，继续调用下面的array_klass_or_null()或array_klass函数创建符合要求的n维数组
+  // 如果dim+1维的ObjArrayKlass仍然不等于n， 则会间接递归调用本函数继续创建dim+2和dim+3等，直到等于n。
+  // 注意，下次调用的时候，就是使用的oak来表示this_oop了。
   ObjArrayKlass* oak = (ObjArrayKlass*)this_oop->array_klasses();
   if (or_null) {
     return oak->array_klass_or_null(n);

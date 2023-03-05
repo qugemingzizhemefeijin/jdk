@@ -35,7 +35,11 @@
 class ObjArrayKlass : public ArrayKlass {
   friend class VMStructs;
  private:
+  // 该属性保存的是数组元素的组件类型而不是元素类型
   Klass* _element_klass;            // The klass of the elements of this array type
+  // 可以是InstanceKlass或者TypeArrayKlass，因此可能是元素类型或TypeArrayKlass，
+  // 一维基本类型数组使用TypeArrayKlass表示，二维基本类型数组使用ObjArrayKlass来表示，
+  // 此时的ObjArrayKlass的_bottom_klass是TypeArrayKlass。
   Klass* _bottom_klass;             // The one-dimensional type (InstanceKlass or TypeArrayKlass)
 
   // Constructor
@@ -64,7 +68,7 @@ class ObjArrayKlass : public ArrayKlass {
   bool oop_is_objArray_slow()  const  { return true; }
   int oop_size(oop obj) const;
 
-  // Allocation
+  // Allocation 创建组合类型为element_klass的n维数组
   static Klass* allocate_objArray_klass(ClassLoaderData* loader_data,
                                           int n, KlassHandle element_klass, TRAPS);
 

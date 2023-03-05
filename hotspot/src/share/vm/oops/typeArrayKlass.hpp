@@ -31,9 +31,21 @@
 // A TypeArrayKlass is the klass of a typeArray
 // It contains the type and size of the elements
 
+// ArrayKlass的子类中有表示数组组件类型是Java基本类型的TypeArrayKlass，以及表示组件类型是对象类型的ObjArrayKlass。
+// 数组类和普通类不同，数组类没有对应的Class文件，因此数组类是虚拟机直接创建的。
+// HotSpot VM在初始化时就会创建Java中8个基本类型的一维数组实例TypeArrayKlass。
+// TypeArrayKlass实例的内存布局
+// |---------------------------------|
+// |    TypeArrayKlass本身占用的内存    |
+// |             vtable              |
+// |---------------------------------|
+
+// 最终此类初始化之后会与oop形成互联关系
+// TypeArrayKlass -> _component_mirror  --->>> oop(表示java.lang.Class对象) -> _array_klass_offset 指向 TypeArrayKlass实例
 class TypeArrayKlass : public ArrayKlass {
   friend class VMStructs;
  private:
+  // 保存数组允许的最大长度
   jint _max_length;            // maximum number of elements allowed in an array
 
   // Constructor
@@ -49,10 +61,11 @@ class TypeArrayKlass : public ArrayKlass {
   // testers
   bool oop_is_typeArray_slow() const    { return true; }
 
-  // klass allocation
+  // klass allocation 创建TypeArrayKlass实例
   static TypeArrayKlass* create_klass(BasicType type, const char* name_str,
                                TRAPS);
   static inline Klass* create_klass(BasicType type, int scale, TRAPS) {
+    // external_name 获取基本类型的描述符 [I,[J等
     TypeArrayKlass* tak = create_klass(type, external_name(type), CHECK_NULL);
     assert(scale == (1 << tak->log2_element_size()), "scale must check out");
     return tak;
@@ -97,10 +110,11 @@ class TypeArrayKlass : public ArrayKlass {
     return (TypeArrayKlass*) k;
   }
 
-  // Naming
+  // 根据传入的BasicType类型来获取基本类型的字符描述，如[I,[Z,[J
   static const char* external_name(BasicType type);
 
   // Sizing
+  // 获取TypeArrayKlass类自身占用的内存空间。
   static int header_size()  { return sizeof(TypeArrayKlass)/HeapWordSize; }
   int size() const          { return ArrayKlass::static_size(header_size()); }
 
