@@ -866,6 +866,7 @@ LoadJavaVM(const char *jvmpath, InvocationFunctions *ifn)
         return JNI_FALSE;
     }
 
+    // 这里用来初始化JNI调用时非常重要的两个参数，JavaVM和JNIEnv。
     ifn->CreateJavaVM = (CreateJavaVM_t)
         dlsym(libjvm, "JNI_CreateJavaVM");
     if (ifn->CreateJavaVM == NULL) {
@@ -996,6 +997,10 @@ void SplashFreeLibrary() {
 
 /*
  * Block current thread and continue execution in a new thread
+ *
+ * 在Linux系统中（后面所说的Linux系统都是指基于Linux内核的操作系统） 创建一个pthread_t线程，然后使用这个新创建的线程执行JavaMain()函数。
+ * 第一个参数int (JNICALL *continuation)(void*)接收的就是 JavaMain()函数的指针。
+ *
  */
 int
 ContinueInNewThread0(int (JNICALL *continuation)(void *), jlong stack_size, void * args) {
@@ -1012,7 +1017,7 @@ ContinueInNewThread0(int (JNICALL *continuation)(void *), jlong stack_size, void
 
     if (pthread_create(&tid, &attr, (void *(*)(void*))continuation, (void*)args) == 0) {
       void * tmp;
-      pthread_join(tid, &tmp);
+      pthread_join(tid, &tmp); // 当前线程会阻塞在这里
       rslt = (int)tmp;
     } else {
      /*
@@ -1059,6 +1064,7 @@ JVMInit(InvocationFunctions* ifn, jlong threadStackSize,
         int mode, char *what, int ret)
 {
     ShowSplashScreen();
+    // jdk/src/share/bin/java.c
     return ContinueInNewThread(ifn, threadStackSize, argc, argv, mode, what, ret);
 }
 

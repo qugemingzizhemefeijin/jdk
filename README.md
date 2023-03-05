@@ -11,3 +11,9 @@
 —— langtools：Java 语言工具
 —— nashorn：JVM 上的 JavaScript 运行时
 ```
+
+### 二分模型
+
+`HotSpot`采用`oop-Klass`模型表示`Java`的对象和类。`oop`（`ordinary object pointer`）指普通的对象指针，`Klass`表示对象的具体类型。
+
+为何要设计一个一分为二的对象模型呢？这是因为`HotSpot`的设计者不想让每个对象中都含有一个`vtable`（虚函数表），所以就把对象模型拆成`Klass`和`oop`。其中，`oop`中不含有任何虚函数，自然就没有虚函数表，而`Klass`中含有虚函数表，可以进行方法的分发。

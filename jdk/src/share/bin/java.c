@@ -245,6 +245,7 @@ JLI_Launch(int argc, char ** argv,              /* main argc, argc */
         start = CounterGet();
     }
 
+    // jdk/src/solaris/bin/java_md_solinux.c
     if (!LoadJavaVM(jvmpath, &ifn)) {
         return(6);
     }
@@ -296,6 +297,7 @@ JLI_Launch(int argc, char ** argv,              /* main argc, argc */
     /* set the -Dsun.java.launcher.* platform properties */
     SetJavaLauncherPlatformProps();
 
+    // jdk/src/solaris/bin/java_md_solinux.c
     return JVMInit(&ifn, threadStackSize, argc, argv, mode, what, ret);
 }
 /*
@@ -345,6 +347,7 @@ JLI_Launch(int argc, char ** argv,              /* main argc, argc */
         } \
     } while (JNI_FALSE)
 
+// JVM启动函数
 int JNICALL
 JavaMain(void * _args)
 {
@@ -368,6 +371,9 @@ JavaMain(void * _args)
 
     /* Initialize the virtual machine */
     start = CounterGet();
+    // InitializeJVM()函数初始化JVM，给JavaVM和JNIEnv对象正确赋值，通过调用InvocationFunctions结构体下的CreateJavaVM()函数
+    // 指针来实现，该指针在 LoadJavaVM()函数中指向libjvm.so动态链接库中的JNI_CreateJavaVM()函数。
+    // 主要是初始化两个非常重要的变量JavaVM与JNIEnv
     if (!InitializeJVM(&vm, &env, &ifn)) {
         JLI_ReportErrorMessage(JVM_ERROR1);
         exit(1);
@@ -436,6 +442,8 @@ JavaMain(void * _args)
      * This method also correctly handles launching existing JavaFX
      * applications that may or may not have a Main-Class manifest entry.
      */
+    // 加载Java主类
+    // LoadMainClass()函数最终会调用libjvm.so中实现的JVM_FindClassFromBootLoader()函数来查找启动类.
     mainClass = LoadMainClass(env, mode, what);
     CHECK_EXCEPTION_NULL_LEAVE(mainClass);
     /*
@@ -460,16 +468,24 @@ JavaMain(void * _args)
      * is not required. The main method is invoked here so that extraneous java
      * stacks are not in the application stack trace.
      */
+    // 从Java主类中查找main()方法对应的唯一ID
     mainID = (*env)->GetStaticMethodID(env, mainClass, "main",
                                        "([Ljava/lang/String;)V");
     CHECK_EXCEPTION_NULL_LEAVE(mainID);
 
     /* Build platform specific argument array */
+    // 创建针对平台的参数数组
     mainArgs = CreateApplicationArgs(env, argv, argc);
     CHECK_EXCEPTION_NULL_LEAVE(mainArgs);
 
     /* Invoke main method. */
+    // 调用Java主类中的main()方法,调用JNIEnv中定义的CallStaticVoidMethod()函数，
+    // 最终会调用JavaCalls::call()函数执行Java主类中的main()方法。
     (*env)->CallStaticVoidMethod(env, mainClass, mainID, mainArgs);
+
+    // 当控制权转移到Java主类中的main()方法之后，当前线程就不再做其他事情了，等main()方法返回之后，
+    // 当前线程会清理和关闭JVM，调用本地函数jni_DetachCurrentThread()断开与主线程的连接。
+    // 当成功与主线程断开连接后，当前线程会一直等待程序中的所有非守护线程全部执行结束，然后调用本地函数jni_DestroyJavaVM()对JVM执行销毁。
 
     /*
      * The launcher's exit code (in the absence of calls to
@@ -1901,6 +1917,7 @@ ContinueInNewThread(InvocationFunctions* ifn, jlong threadStackSize,
       args.what = what;
       args.ifn = *ifn;
 
+      // 调用ContinueInNewThread0()函数创建一个JVM实例并执行Java主类的main()方法，jdk/src/solaris/bin/java_md_solinux.c
       rslt = ContinueInNewThread0(JavaMain, threadStackSize, (void*)&args);
       /* If the caller has deemed there is an error we
        * simply return that, otherwise we return the value of

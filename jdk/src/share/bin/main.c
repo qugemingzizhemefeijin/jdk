@@ -79,6 +79,34 @@
 
 char **__initenv;
 
+// 针对Linux最终编译的代码如下：
+/*
+
+int main(int argc, char **argv){
+    int margc;
+    char** margv;
+    const jboolean const_javaw = JNI_FALSE;
+    margc = argc;
+    margv = argv;
+
+    // JLI_Launch()函数进行了一系列必要的操作， 如libjvm.so的加载、参数解析、 Classpath的获取和设置、 系统属性设置、 JVM初始化等。
+    // 该函数会调用LoadJavaVM()加载libjvm.so并初始化相关参数。
+
+    // jdk/src/share/bin/java.c
+
+    return JLI_Launch(margc, margv,
+        sizeof(const_jargs) / sizeof(char *), const_jargs,
+        sizeof(const_appclasspath) / sizeof(char *), const_appclas
+        FULL_VERSION,
+        DOT_VERSION,
+        (const_progname != NULL) ? const_progname : *margv,
+        (const_launcher != NULL) ? const_launcher : *margv,
+        (const_jargs != NULL) ? JNI_TRUE : JNI_FALSE,
+        const_cpwildcard, const_javaw, const_ergo_class);
+}
+
+*/
+
 int WINAPI
 WinMain(HINSTANCE inst, HINSTANCE previnst, LPSTR cmdline, int cmdshow)
 {
