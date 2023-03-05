@@ -56,10 +56,37 @@ class CMSIsAliveClosure;
 class PSPromotionManager;
 class ParCompactionManager;
 
+// oopDesc类的别名为oop，因此HotSpot VM中一般使用oop表示oopDesc类型。oopDesc是所有类名格式为xxxOopDesc类的基类，
+// 这些类的实例表示Java对象，因此类名格式为xxxOopDesc的类中会声明一些保存Java对象信息的字段，这样就可以直接被C++获取。
+
+// Java对象内存布局主要分为header（头部）和fields（实例字段）。header由_mark和_metadata组成。
+//
 class oopDesc {
   friend class VMStructs;
  private:
+  // _mark字段保存了Java对象的一些信息，如GC分代年龄、锁状态等；
   volatile markOop  _mark;
+  // _metadata使用联合体（union）来声明，这样是为了在64位平台能对指针进行压缩。
+  // 从32位平台到64位平台，指针由4字节变为了8字节， 因此通常64位的HotSpot VM消耗的内存比32位的大，造成堆内存损失。
+  // 不过从JDK 1.6 update14开始，64位的HotSpot VM正式支持-XX:+UseCompressedOops命令（默认开启）。
+  // 该命令可以压缩指针，起到节约内存占用的作用。
+
+  // 在64位平台上，存放_metadata的空间是8字节，_mark是8字节，对象头为16字节。
+  // 在64位开启指针压缩的情况下，存放_metadata的空间是4字节，_mark是8字节，对象头为12字节。
+
+  // 64位地址分为堆的基地址+偏移量，当堆内存小于32GB时，在压缩过程中会把偏移量除以8后的结果保存到32位地址中，
+  // 解压时再把32位地址放大8倍，因此启用-XX:+UseCompressedOops命令的条件是堆内存要在4GB×8=32GB以内。
+  // 具体实现方式是在机器码中植入压缩与解压指令，但这样可能会给HotSpot VM增加额外的开销。
+
+  // 如果GC堆内存在4GB以下，直接忽略高32位，以避免编码、解码过程；
+  // 如果GC堆内存在4GB以上32GB以下，则启用-XX:+UseCompressedOops命令；
+  // 如果GC堆内存大于32GB，压缩指针的命令失效，使用原来的64位HotSpot VM。
+
+  // 另外，OpenJDK 8使用元空间存储元数据，在-XX:+UseCompressedOops命令之外，额外增加了一个新的命令-XX:+UseCompressedClassPointer。
+  // 这个命令打开后，类元信息中的指针也用32位的Compressed版本。而这些指针指向的空间被称作Compressed Class Space，默认是1GB，
+  // 可以通过-XX:CompressedClassSpaceSize命令进行调整。
+
+  // 联合体中定义的_klass或_compressed_klass指针指向的是Klass实例，这个Klass实例保存了Java对象的实际类型，也就是Java对象所对应的Java类。
   union _metadata {
     Klass*      _klass;
     narrowKlass _compressed_klass;
