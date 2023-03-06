@@ -101,6 +101,34 @@ class BasicLock;
 class ObjectMonitor;
 class JavaThread;
 
+// markOopDesc类的实例可以表示Java对象的头信息Mark Word，包含的信息有哈希码、GC分代年龄、偏向锁标记、线程持有的锁、偏向线程ID和偏向时间戳等。
+// markOopDesc类的实例并不能表示一个具体的Java对象，而是通过一个字的各个位来表示Java对象的头信息。
+// 对于32位平台来说，一个字为32位，对于64位平台来说，一个字为64位。
+
+// |------------------------------------------------------------------------------------------------------|
+// |                           Mark Word (64 bit)                                                |  锁状态 |
+// | unused: 25 |  identity_hashcode:31 | unused:1 | age:4 | biased_lock:0 | lock: 01            |  正常   |
+// | thread:54  |       epoch:2         | unused:1 | age:4 | biased_lock:1 | lock: 01            |  偏向锁 |
+// |                                ptr_to_lock_record:62                  | lock: 00            | 轻量级锁 |
+// |                             ptr_to_heavyweight_monitor:62             | lock: 10            | 重量级锁 |
+// |                               forwarding ptr(可选)                     | lock: 11            |  GC标记 |
+// |------------------------------------------------------------------------------------------------------|
+
+// lock：2位的锁状态标记位。为了用尽可能少的二进制位表示尽可能多的信息，因此设置了lock标记。该标记的值不同，整个Mark Word表示的含义就不同。
+//       biased_lock和lock表示锁的状态。
+// biased_lock：对象是否启用偏向锁标记，只占一个二进制位。值为1时表示对象启用偏向锁，值为0时表示对象没有偏向锁。lock和biased_lock共同表示对象的锁状态。
+// age：占用4个二进制位，存储的是Java对象的年龄。在GC中，如果对象在Survivor区复制一次，则年龄增加1。
+//      当对象的年龄达到设定的阈值时，将会晋升到老年代。默认情况下，并行GC的年龄阈值为15，并发GC的年龄阈值为6。
+//      由于age只有4位，所以最大值为15，这就是-XX:MaxTenuringThreshold选项最大值为15的原因。
+// identity_hashcode：占用31个二进制位，用来存储对象的HashCode，采用延时加载技术。
+//      System.identityHashCode()方法计算HashCode并将结果写入该对象头中。如果当前对象的锁状态为偏向锁，
+//      而偏向锁没有存储HashCode的地方，因此调用identityHashCode()方法会造成锁升级，而轻量级锁和重量级锁所指向的lock record
+//      或monitor都有存储HashCode的空间。HashCode只针对identity hash code。用户自定义的hashCode()方法所返回的值不存储在Mark Word中。
+//      identity hash code是未被覆写的java.lang.Object.hashCode()或者java.lang.System.identityHashCode()方法返回的值。
+// thread：持有偏向锁的线程ID。
+// epoch：偏向锁的时间戳。
+// ptr_to_lock_record：轻量级锁状态下，指向栈中锁记录的指针。
+// ptr_to_heavyweight_monitor：重量级锁状态下，指向对象监视器Monitor的指针。
 class markOopDesc: public oopDesc {
  private:
   // Conversion

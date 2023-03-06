@@ -38,7 +38,28 @@
 //  Klass*    // 32 bits if compressed but declared 64 in LP64.
 //  length    // shares klass memory or allocated after declared fields.
 
+// arrayOopDesc类的实例表示Java数组对象。 具体的基本类型数组或对象类型数组由具体的C++中定义的子类实例表示。
+// 在HotSpot VM中，数组对象在内存中的布局可以分为三个区域：对象头（header）、对象字段数据（field data）和对齐填充（padding）。
+// |------------------|
+// |       _mark      |
+// |     _metadata    |   对象头
+// |     length       |
+// |------------------|
+// |                  |
+// |  field data...   |   对象字段数据
+// |                  |
+// |------------------|
+// |      padding     |   对齐填充
+// |------------------|
 
+// 与Java对象内存布局唯一不同的是，数组对象的对象头中还会存储数组的长度length，它占用的内存空间为4字节。
+// 在64位下，存放_metadata的空间是8字节，_mark是8字节，length是4字节，对象头为20字节，由于要按8字节对齐，所以会填充4字节，最终占用24字节。
+// 64位开启指针压缩的情况下，存放_metadata的空间是4字节，_mark是8字节，length是4字节，对象头为16字节。
+
+// arrayOopDesc类有两个子类：
+//   1:表示组件类型为基本类型的typeArrayOopDesc；
+//   2:表示组件类型为对象类型的objArrayOopDesc；二维及二维以上的数组都用objArrayOopDesc的实例来表示
+// 当需要创建typeArrayOopDesc/objArrayOopDesc实例时，通常会调用oopFactory类中的工厂方法。hotspot/src/share/vm/memory/oopFactory.hpp
 class arrayOopDesc : public oopDesc {
   friend class VMStructs;
 

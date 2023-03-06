@@ -38,9 +38,12 @@
 
 class vframeArray;
 
+// 创建数组typeArrayOop/objArrayOop的工厂类
 class oopFactory: AllStatic {
  public:
   // Basic type leaf array allocation
+  // 调用Universe::boolArrayKlassObj()函数获取_charArrayKlassObj属性的值。
+  // _charArrayKlassObj属性保存的是表示boolean数组的TypeArrayKlass实例，该实例是通过调用TypeArrayKlass::create_klass()函数创建的。
   static typeArrayOop    new_boolArray  (int length, TRAPS) { return TypeArrayKlass::cast(Universe::boolArrayKlassObj  ())->allocate(length, CHECK_NULL); }
   static typeArrayOop    new_charArray  (int length, TRAPS) { return TypeArrayKlass::cast(Universe::charArrayKlassObj  ())->allocate(length, CHECK_NULL); }
   static typeArrayOop    new_singleArray(int length, TRAPS) { return TypeArrayKlass::cast(Universe::singleArrayKlassObj())->allocate(length, CHECK_NULL); }

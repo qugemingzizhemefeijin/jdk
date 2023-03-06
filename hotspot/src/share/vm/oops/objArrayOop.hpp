@@ -30,6 +30,7 @@
 // An objArrayOop is an array containing oops.
 // Evaluating "String arg[10]" will create an objArrayOop.
 
+// 表示对象类型的objArrayOopDesc；二维及二维以上的数组都用objArrayOopDesc的实例来表示。
 class objArrayOopDesc : public arrayOopDesc {
   friend class ObjArrayKlass;
   friend class Runtime1;

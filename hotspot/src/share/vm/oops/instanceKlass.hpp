@@ -786,7 +786,7 @@ class InstanceKlass: public Klass {
   Array<AnnotationArray*>* fields_type_annotations() const {
     return (_annotations != NULL) ? _annotations->fields_type_annotations() : NULL;
   }
-  // allocation
+  // allocation 创建instanceOop实例对象
   instanceOop allocate_instance(TRAPS);
 
   // additional member function to return a handle
@@ -991,7 +991,7 @@ class InstanceKlass: public Klass {
   // 可以通过添加虚拟机参数命令-XX:+PrintFieldLayout后，打印的java.lang.Class对象的非静态字段布局.
   int size_helper() const {
     // 获取Klass中的 _layout_helper 属性（对象占用的内存空间在类解析过程中会计算好并存储到_layout_helper属性中。）
-    // layout_helper_to_size_helper()函数获取对象所需的内存空间
+    // layout_helper_to_size_helper()函数获取对象所需的内存空间，这个地方会将 _layout_helper 的值右移 2/3位
     return layout_helper_to_size_helper(layout_helper());
   }
 

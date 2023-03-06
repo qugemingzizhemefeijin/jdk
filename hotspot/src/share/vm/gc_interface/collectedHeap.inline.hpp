@@ -49,6 +49,8 @@ void CollectedHeap::post_allocation_setup_no_klass_install(KlassHandle klass,
   oop obj = (oop)objPtr;
 
   assert(obj != NULL, "NULL object pointer");
+  // 在允许使用偏向锁的情况下，获取Klass中的 _prototype_header 属性值，其中的锁状态一般为偏向锁状态，
+  // 而markOopDesc::prototype()函数初始化的对象头，其锁状态一般为无锁状态Klass中的 _prototype_header 完全是为了支持偏向锁增加的属性，
   if (UseBiasedLocking && (klass() != NULL)) {
     obj->set_mark(klass->prototype_header());
   } else {
@@ -94,6 +96,7 @@ void CollectedHeap::post_allocation_setup_obj(KlassHandle klass,
   post_allocation_notify(klass, (oop)obj);
 }
 
+// 设置数组的length，_mark和_metadata属性
 void CollectedHeap::post_allocation_setup_array(KlassHandle klass,
                                                 HeapWord* obj,
                                                 int length) {
@@ -101,6 +104,7 @@ void CollectedHeap::post_allocation_setup_array(KlassHandle klass,
   // in post_allocation_setup_common() because the klass field
   // indicates that the object is parsable by concurrent GC.
   assert(length >= 0, "length should be non-negative");
+  // 初始化数组中的length值
   ((arrayOop)obj)->set_length(length);
   post_allocation_setup_common(klass, obj);
   assert(((oop)obj)->is_array(), "must be an array");
@@ -211,7 +215,9 @@ oop CollectedHeap::array_allocate(KlassHandle klass,
   debug_only(check_for_valid_allocation_state());
   assert(!Universe::heap()->is_gc_active(), "Allocation during gc not allowed");
   assert(size >= 0, "int won't convert to size_t");
+  // 在堆上分配指定size大小的内存。
   HeapWord* obj = common_mem_allocate_init(klass, size, CHECK_NULL);
+  // 设置数组的length，_mark和_metadata属性
   post_allocation_setup_array(klass, obj, length);
   NOT_PRODUCT(Universe::heap()->check_for_bad_heap_word_value(obj, size));
   return (oop)obj;
@@ -226,6 +232,7 @@ oop CollectedHeap::array_allocate_nozero(KlassHandle klass,
   assert(size >= 0, "int won't convert to size_t");
   HeapWord* obj = common_mem_allocate_noinit(klass, size, CHECK_NULL);
   ((oop)obj)->set_klass_gap(0);
+  // 设置数组的length，_mark和_metadata属性
   post_allocation_setup_array(klass, obj, length);
 #ifndef PRODUCT
   const size_t hs = oopDesc::header_size()+1;

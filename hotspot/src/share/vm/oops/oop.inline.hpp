@@ -154,6 +154,7 @@ inline bool oopDesc::is_array()              const { return klass()->oop_is_arra
 inline bool oopDesc::is_objArray()           const { return klass()->oop_is_objArray(); }
 inline bool oopDesc::is_typeArray()          const { return klass()->oop_is_typeArray(); }
 
+// field_base()函数用于获取字段地址，offset是偏移量，可以通过相对于当前实例this的内存首地址的偏移量来存取字段的值。
 inline void*     oopDesc::field_base(int offset)        const { return (void*)&((char*)this)[offset]; }
 
 template <class T> inline T* oopDesc::obj_field_addr(int offset) const { return (T*)field_base(offset); }

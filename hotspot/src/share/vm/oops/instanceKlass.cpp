@@ -316,8 +316,9 @@ InstanceKlass::InstanceKlass(int vtable_len,
     p[index] = NULL_WORD;
   }
 
-  // Set temporary value until parseClassFile updates it with the real instance
-  // size.
+  // Set temporary value until parseClassFile updates it with the real instance size.
+  // instance_layout_helper()函数会将size的值左移3位， 因此获取size时需要向右移动3位。
+  // 调用parseClassFile()函数计算实例的大小， 然后调用instance_layout_helper()函数将其保存在_layout_helper属性中。
   set_layout_helper(Klass::instance_layout_helper(0, true));
 }
 
@@ -1098,14 +1099,17 @@ instanceOop InstanceKlass::register_finalizer(instanceOop i, TRAPS) {
   return h_i();
 }
 
+// 创建instanceOop实例对象
 instanceOop InstanceKlass::allocate_instance(TRAPS) {
   bool has_finalizer_flag = has_finalizer(); // Query before possible GC
+  // 获取创建instanceOop实例所需要的内存空间
   int size = size_helper();  // Query before forming handle.
 
   KlassHandle h_k(THREAD, this);
 
   instanceOop i;
 
+  // 分配size大小的内存并将内存初始化为零值，这样Java对象就可以不经过初始化而使用其各个字段的零值。
   i = (instanceOop)CollectedHeap::obj_allocate(h_k, size, CHECK_NULL);
   // 如果我们的要求Finalizer的类在分配好空间对象之后注册。
   if (has_finalizer_flag && !RegisterFinalizersAtInit) {

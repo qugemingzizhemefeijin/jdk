@@ -92,6 +92,9 @@ class oopDesc {
     narrowKlass _compressed_klass;
   } _metadata;
 
+  // Java对象的header信息可以存储在oopDesc类中定义的_mark和_metadata属性中，而Java对象的fields没有在oopDesc类中定义相应的属性来存储，
+  // 因此只能申请一定的内存空间，然后按一定的布局规则进行存储。对象字段存放在紧跟着oopDesc实例本身占用的内存空间之后，在获取时只能通过偏移来取值。
+
   // Fast access to barrier set.  Must be initialized.
   static BarrierSet* _bs;
 
@@ -123,6 +126,7 @@ class oopDesc {
   oop list_ptr_from_klass();
 
   // size of object header, aligned to platform wordSize
+  // 计算Header占用的内存空间，对于64位平台来说，一个字的大小为8字节，因此HeapWordSize的值为8。
   static int header_size()          { return sizeof(oopDesc)/HeapWordSize; }
 
   // Returns whether this is an instance of k or an instance of a subclass of k
@@ -145,6 +149,7 @@ class oopDesc {
 
  private:
   // field addresses in oop
+  // field_base()函数用于获取字段地址，offset是偏移量，可以通过相对于当前实例this的内存首地址的偏移量来存取字段的值。
   void*     field_base(int offset)        const;
 
   jbyte*    byte_field_addr(int offset)   const;

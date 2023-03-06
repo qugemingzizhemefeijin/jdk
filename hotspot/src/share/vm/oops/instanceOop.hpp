@@ -30,6 +30,31 @@
 // An instanceOop is an instance of a Java Class
 // Evaluating "new HashTable()" will create an instanceOop.
 
+// instanceOopDesc类的实例表示除数组对象外的其他对象。
+// 在HotSpot虚拟机中，对象在内存中存储的布局可以分为三个区域：对象头（header）、对象字段数据（field data）和对齐填充（padding）。
+
+// |------------------|
+// |       _mark      |   对象头
+// |     _metadata    |
+// |------------------|
+// |                  |
+// |  field data...   |   对象字段数据
+// |                  |
+// |------------------|
+// |      padding     |   对齐填充
+// |------------------|
+
+// 对象头：对象头分为两部分，一部分是Mark Word，另一部分是存储指向元数据区对象类型数据的指针_klass或_compressed_klass。
+// 对象字段数据：Java对象中的字段数据存储了Java源代码中定义的各种类型的字段内容，具体包括父类继承及子类定义的字段。
+//        存储顺序受HotSpot VM布局策略命令-XX:FieldsAllocationStyle(默认1)和字段在Java源代码中定义的顺序的影响，
+//        默认布局策略的顺序为long/double、int、short/char、boolean、oop（对象指针，32位系统占用4字节，64位系统占用8字节），
+//        相同宽度的字段总被分配到一起。
+//        如果虚拟机的-XX:+CompactFields参数为true(默认)，则子类中较窄的变量可能插入空隙中，以节省使用的内存空间。
+//        例如，当布局long/double类型的字段时，由于对齐的原因，可能会在header和long/double字段之间形成空隙，
+//        如64位系统开启压缩指针，header占12字节，剩下的4字节就是空隙，这时就可以将一些短类型插入long/double和header之间的空隙中。
+// 对齐填充：对齐填充不是必需的，只起到占位符的作用，没有其他含义。HotSpot VM要求对象所占的内存必须是8字节的整数倍，对象头刚好是8字节的整数倍，
+//        因此填充是对实例数据没有对齐的情况而言的。对象所占的内存如果是以8字节对齐，那么对象在内存中进行线性分配时，
+//        对象头的地址就是以8字节对齐的，这时候就为对象指针压缩提供了条件，可以将地址缩小8倍进行存储。
 class instanceOopDesc : public oopDesc {
  public:
   // aligned header size.

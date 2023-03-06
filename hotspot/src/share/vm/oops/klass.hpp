@@ -128,7 +128,7 @@ class Klass : public Metadata {
   // 对象布局的综合描述符，如果不是InstanceKlass或ArrayKlass，值为0.
   // 如果是InstanceKlass或ArrayKlass，这个值是一个组合数据。
   // (1) 对于InstanceKlass而言，组合数字中包含表示对象的以字节位单位的内存占用量。
-  //     由于InstanceKlass实例能够表示Java类，因为这里指的内存占用量是值这个Java类创建的对象所需要的内存。
+  //     由于InstanceKlass实例能够表示Java类，因为这里指的内存占用量是指这个Java类创建的对象所需要的内存。
   // (2) 对于ArrayKlass而言，组合数字中包含tag、hsize、etype和esize四部分，具体怎么组合和解析由子类实现。
   // hotspot/src/share/vm/oops/klass.cpp -> 调用函数如： Klass::array_layout_helper(BasicType etype)
   jint        _layout_helper;
@@ -404,14 +404,23 @@ class Klass : public Metadata {
       |    ((int)etype << _lh_element_type_shift)
       |    (log2_esize << _lh_log2_element_size_shift);
   }
+
+  // 计算 _layout_helper 的值，此方法在 parseClassFile()函数的时候会计算实例的大小。
+  // 这个方法会左移3位，那么在 layout_helper_to_size_helper() 函数中相应的就是右移3位。
+  // 为什么需要左移3位，然后 layout_helper_to_size_helper() 函数 右移3位呢？？？
+  // 好像是因为这个内存实例大小的最后3位存储用于实例慢速分配有关的标志。
+  // layout_helper_to_size_helper()中右移就会被丢弃掉，得到实例需要的真正内存大小。
   static jint instance_layout_helper(jint size, bool slow_path_flag) {
+    // 保存时， size值左移3位， 低3位用来保存其他信息
     return (size << LogHeapWordSize)
-      |    (slow_path_flag ? _lh_instance_slow_path_bit : 0);
+      |    (slow_path_flag ? _lh_instance_slow_path_bit : 0); // 实例慢速分配有关
   }
   // 获取对象所需的内存空间
   static int layout_helper_to_size_helper(jint lh) {
     assert(lh > (jint)_lh_neutral_value, "must be instance");
     // Note that the following expression discards _lh_instance_slow_path_bit.
+    // 64位LogHeapWordSize=3,32位LogHeapWordSize=2
+    // LogHeapWordSize的值为3，向右移3位
     return lh >> LogHeapWordSize;
   }
   // Out-of-line version computes everything based on the etype:

@@ -62,6 +62,7 @@
 // It is used for arrays of {characters, singles, doubles, bytes, shorts, integers, longs}
 #include <limits.h>
 
+// 表示基本类型的数组oop实例
 class typeArrayOopDesc : public arrayOopDesc {
  protected:
   jchar*    char_base()   const { return (jchar*)   base(T_CHAR); }
@@ -173,6 +174,11 @@ class typeArrayOopDesc : public arrayOopDesc {
   // Returns the number of words necessary to hold an array of "len"
   // elements each of the given "byte_size".
  private:
+  // 从 _layout_helper 中获取数组的内存大小。lh = _layout_helper
+  // ArrayKlass实例的 _layout_helper 属性是组合数字，可以通过调用对应的函数从该属性中获取数组头需要占用的字节数及组件类型需要占用的字节数
+  // 如果组件类型为boolean类型，则值为1。最终arrayOopDesc实例占用的内存空间是通过如下公式计算出来：
+  // size = instance_header_size + length<<element_shift + 对齐填充
+  // 16 + 4 + 4
   static int object_size(int lh, int length) {
     int instance_header_size = Klass::layout_helper_header_size(lh);
     int element_shift = Klass::layout_helper_log2_element_size(lh);
