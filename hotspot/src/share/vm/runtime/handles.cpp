@@ -42,6 +42,7 @@
 #endif
 
 #ifdef ASSERT
+// 在线程的 handle_area 区域中申请内存并创建句柄对象
 oop* HandleArea::allocate_handle(oop obj) {
   assert(_handle_mark_nesting > 1, "memory leak: allocating handle outside HandleMark");
   assert(_no_handle_mark_nesting == 0, "allocating handle inside NoHandleMark");
@@ -49,11 +50,15 @@ oop* HandleArea::allocate_handle(oop obj) {
   return real_allocate_handle(obj);
 }
 
+// 创建句柄对象
+// 参数obj是要通过句柄操作的对象。通过调用当前线程的handle_area()函数获取Handle-Area，
+// 然后调用allocate_handle()函数在HandleArea中分配存储obj的空间并存储obj
 Handle::Handle(Thread* thread, oop obj) {
   assert(thread == Thread::current(), "sanity check");
   if (obj == NULL) {
     _handle = NULL;
   } else {
+    // 创建句柄对象，方法在上面，实际调用了 handles.hpp 中的 real_allocate_handle(obj) 方法。
     _handle = thread->handle_area()->allocate_handle(obj);
   }
 }

@@ -540,7 +540,7 @@ public:
   DEBUG_ONLY(ResourceMark* _current_resource_mark;)
 
   // Thread local handle area for allocation of handles within the VM
-  HandleArea* _handle_area;
+  HandleArea* _handle_area;                                             // 句柄对象存储区域
   GrowableArray<Metadata*>* _metadata_handles;
 
   // Support for stack overflow handling, get_thread, etc.

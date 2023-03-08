@@ -92,6 +92,9 @@ class klassVtable;
 class ParCompactionManager;
 class KlassSizeStats;
 
+// Klass -> [ InstanceKlass, ArrayKlass ]
+// InstanceKlass -> [ InstanceRefKlass, InstanceMirrorKlass, InstanceClassLoaderKlass ]
+// ArrayKlass -> [ ObjArrayKlass, TypeArrayKlass ]
 class Klass : public Metadata {
   friend class VMStructs;
  protected:

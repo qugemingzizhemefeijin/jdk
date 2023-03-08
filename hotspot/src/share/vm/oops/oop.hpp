@@ -60,7 +60,11 @@ class ParCompactionManager;
 // 这些类的实例表示Java对象，因此类名格式为xxxOopDesc的类中会声明一些保存Java对象信息的字段，这样就可以直接被C++获取。
 
 // Java对象内存布局主要分为header（头部）和fields（实例字段）。header由_mark和_metadata组成。
-//
+// oopDesc -> [ instanceOopDesc, markOopDesc, arrayOopDesc ]
+// arrayOopDesc -> [ objArrayOopDesc, typeArrayOopDesc ]
+
+// markOopDesc不是指Java对象，而是指Java对象的头信息，
+// 因此表示普通Java类对象的instanceOopDesc实例和表示数组对象的objArrayOopDesc与typeArrayOopDesc实例都含有markOopDesc实例。
 class oopDesc {
   friend class VMStructs;
  private:

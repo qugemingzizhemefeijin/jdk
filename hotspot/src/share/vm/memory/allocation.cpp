@@ -489,8 +489,11 @@ void* Arena::operator new (size_t size, const std::nothrow_t&  nothrow_constant)
 }
 
   // dynamic memory type binding
+// MEMFLAGS => enum MemoryType allocation.hpp
+// thread初始化的 _handle_area 属性是调用此处来申请内存的。
 void* Arena::operator new(size_t size, MEMFLAGS flags) throw() {
 #ifdef ASSERT
+  // AllocateHeap 是个内联函数
   void* p = (void*)AllocateHeap(size, flags|otArena, CALLER_PC);
   if (PrintMallocFree) trace_heap_malloc(size, "Arena-new", p);
   return p;
@@ -550,7 +553,7 @@ void Arena::signal_out_of_memory(size_t sz, const char* whence) const {
   vm_exit_out_of_memory(sz, OOM_MALLOC_ERROR, whence);
 }
 
-// Grow a new Chunk
+// Grow a new Chunk 分配新的Chunk块后加入单链表， 然后在新的Chunk块中分配x大小的内存
 void* Arena::grow(size_t x, AllocFailType alloc_failmode) {
   // Get minimal required size.  Either real big, or even bigger for giant objs
   size_t len = MAX2(x, (size_t) Chunk::size);

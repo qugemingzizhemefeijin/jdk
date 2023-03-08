@@ -336,8 +336,8 @@ class Chunk: CHeapObj<mtChunk> {
   friend class VMStructs;
 
  protected:
-  Chunk*       _next;     // Next Chunk in list
-  const size_t _len;      // Size of this Chunk
+  Chunk*       _next;     // Next Chunk in list     单链表的下一个Chunk
+  const size_t _len;      // Size of this Chunk     当前Chunk的大小
  public:
   void* operator new(size_t size, AllocFailType alloc_failmode, size_t length) throw();
   void  operator delete(void* p);
@@ -381,6 +381,10 @@ class Chunk: CHeapObj<mtChunk> {
 
 //------------------------------Arena------------------------------------------
 // Fast allocation of memory
+// Arena类通过_first、_chunk等属性管理一个连接成单链表的Chunk，
+// 其中，_first指向单链表的第一个Chunk，而_chunk指向的是当前可提供内存分配的Chunk，通常是单链表的最后一个Chunk。
+// _hwm与_max指示当前可分配内存的Chunk的一些分配信息。
+// Chunk 见allocation.hpp的 class Chunk
 class Arena : public CHeapObj<mtNone|otArena> {
 protected:
   friend class ResourceMark;
@@ -388,10 +392,11 @@ protected:
   friend class NoHandleMark;
   friend class VMStructs;
 
-  Chunk *_first;                // First chunk
-  Chunk *_chunk;                // current chunk
+  Chunk *_first;                // First chunk          单链表的第一个Chunk
+  Chunk *_chunk;                // current chunk        当前正在使用的Chunk
   char *_hwm, *_max;            // High water mark and max in current chunk
   // Get a new Chunk of at least size x
+  // 分配新的Chunk块后加入单链表， 然后在新的Chunk块中分配x大小的内存
   void* grow(size_t x, AllocFailType alloc_failmode = AllocFailStrategy::EXIT_OOM);
   size_t _size_in_bytes;        // Size of arena (used for native memory tracking)
 
@@ -422,6 +427,8 @@ protected:
   char* hwm() const             { return _hwm; }
 
   // new operators
+  // 是否抛出异常，当分配失败时，前者会抛出bad_alloc异常，后者返回null，不会抛出异常。它们都分配一个固定大小的连续内存。
+  // void* operator new (std::size_t size) throw (std::bad_alloc);
   void* operator new (size_t size) throw();
   void* operator new (size_t size, const std::nothrow_t& nothrow_constant) throw();
 
@@ -447,6 +454,7 @@ protected:
     }
   }
   // Further assume size is padded out to words
+  // 会在当前的Chunk块中分配内存，如果当前块的内存不够，则调用grow()方法分配新的Chunk块，然后在新的Chunk块中分配内存。
   void *Amalloc_4(size_t x, AllocFailType alloc_failmode = AllocFailStrategy::EXIT_OOM) {
     assert( (x&(sizeof(char*)-1)) == 0, "misaligned size" );
     debug_only(if (UseMallocOnly) return malloc(x);)
@@ -454,6 +462,8 @@ protected:
       return NULL;
     NOT_PRODUCT(inc_bytes_allocated(x);)
     if (_hwm + x > _max) {
+      // 分配新的Chunk块， 在新的Chunk块中分配内存
+      // 具体实现在 allocation.cpp
       return grow(x, alloc_failmode);
     } else {
       char *old = _hwm;

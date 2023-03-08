@@ -49,11 +49,13 @@ inline void inc_stat_counter(volatile julong* dest, julong add_value) {
 #endif
 
 // allocate using malloc; will fail if no memory available
+// 调用malloc()函数分配内存，如果没有足够内存，分配将失败
 inline char* AllocateHeap(size_t size, MEMFLAGS flags, address pc = 0,
     AllocFailType alloc_failmode = AllocFailStrategy::EXIT_OOM) {
   if (pc == 0) {
     pc = CURRENT_PC;
   }
+  // 传入空间大小，返回内存地址
   char* p = (char*) os::malloc(size, flags, pc);
   #ifdef ASSERT
   if (PrintMallocFree) trace_heap_malloc(size, "AllocateHeap", p);

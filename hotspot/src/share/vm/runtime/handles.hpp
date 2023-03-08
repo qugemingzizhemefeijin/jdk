@@ -61,9 +61,28 @@
 // Base class for all handles. Provides overloading of frequently
 // used operators for ease of use.
 
+// 可以将Handle理解成访问对象的“句柄”。垃圾回收时对象可能被移动（对象地址发生改变），通过Handle访问对象可以对使用者屏蔽垃圾回收细节。
+// Handle -> instanceHandle
+// Handle -> arrayHandle
+// arrayHandle -> [ objArrayHandle, typeArrayHandle ]
+
+// 每个oop都有一个对应的Handle，Handle继承关系与oop继承关系类似，也有对应的关系，
+// 如通过instanceHandle操作instanceOopDesc，通过objArrayHandle操作objArrayOopDesc。
+
+// 获取被封装的oop对象， 并不会直接调用Handle对象的obj()或 non_null_obj()函数， 而是通过C++的运算符重载来获取。
+// 可以这样子使用：
+// oop      obj = ...;
+// Handle   h1(obj);
+// oop obj1 = h1();
+// h1 -> print();
+
+// 由于重载了运算符()，所以h1()会调用()运算符的重载方法，然后在重载方法中调用obj()函数获取被封装的oop对象。
+// h1->print()同样会通过->运算符的重载方法调用oop对象的print()方法。
+
+// Handle被分配在本地线程的HandleArea中，这样在进行垃圾回收时只需要扫描每个线程的HandleArea即可找出所有Handle，进而找出所有引用的活跃对象。
 class Handle VALUE_OBJ_CLASS_SPEC {
  private:
-  oop* _handle;
+  oop* _handle;     // 可以看到是对oop的封装
 
  protected:
   oop     obj() const                            { return _handle == NULL ? (oop)NULL : *_handle; }
@@ -215,7 +234,7 @@ class instanceKlassHandle : public KlassHandle {
 
 
 //------------------------------------------------------------------------------------------------------------------------
-// Thread local handle area
+// Thread local handle area 句柄都是在HandleArea中分配并存储的
 class HandleArea: public Arena {
   friend class HandleMark;
   friend class NoHandleMark;
@@ -224,7 +243,7 @@ class HandleArea: public Arena {
   int _handle_mark_nesting;
   int _no_handle_mark_nesting;
 #endif
-  HandleArea* _prev;          // link to outer (older) area
+  HandleArea* _prev;          // link to outer (older) area  // HandleArea 通过 _prev 连接成单链表
  public:
   // Constructor
   HandleArea(HandleArea* prev) : Arena(Chunk::tiny_size) {
@@ -235,7 +254,11 @@ class HandleArea: public Arena {
 
   // Handle allocation
  private:
+  // 申请内存并创建句柄对象
+  // UseMallocOnly 是 develop 环境下使用。意思是：表示只使用C中自带的malloc/free分配内存，不适用JVM中的内存管理类分配内存，默认为false
   oop* real_allocate_handle(oop obj) {
+  // Amalloc_4()函数会在当前的Chunk块中分配内存，如果当前块的内存不够，则会调用grow()方法分配新的Chunk块，然后在新的Chunk块中分配内存。
+  // 详细请看 hotspot/src/share/vm/memory/allocation.hpp  class Arena
 #ifdef ASSERT
     oop* handle = (oop*) (UseMallocOnly ? internal_malloc_4(oopSize) : Amalloc_4(oopSize));
 #else
