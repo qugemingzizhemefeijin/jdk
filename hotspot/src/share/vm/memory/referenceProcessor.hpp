@@ -316,15 +316,18 @@ class ReferenceProcessor : public CHeapObj<mtGC> {
                       VoidClosure*        complete_gc);
   // Phase2: remove all those references whose referents are
   // reachable.
+  // 从DiscoveredList中移除referent是存活的Reference实例，并行处理时还需要移除referent是null或者next属性不为空的Reference实例
   inline void process_phase2(DiscoveredList&    refs_list,
                              BoolObjectClosure* is_alive,
                              OopClosure*        keep_alive,
                              VoidClosure*       complete_gc) {
     if (discovery_is_atomic()) {
       // complete_gc is ignored in this case for this phase
+      // 非并发场景下
       pp2_work(refs_list, is_alive, keep_alive);
     } else {
       assert(complete_gc != NULL, "Error");
+      // 并发场景下
       pp2_work_concurrent_discovery(refs_list, is_alive,
                                     keep_alive, complete_gc);
     }

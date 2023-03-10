@@ -205,6 +205,7 @@ void ReferenceProcessor::update_soft_ref_master_clock() {
   // past clock value.
 }
 
+// 统计总的Reference实例的个数
 size_t ReferenceProcessor::total_count(DiscoveredList lists[]) {
   size_t total = 0;
   for (uint i = 0; i < _max_num_q; ++i) {
@@ -318,6 +319,7 @@ uint ReferenceProcessor::count_jni_refs() {
 }
 #endif
 
+// 用于处理JNIHandleBlock中保存的JNI弱引用oop，如果这个oop是存活的则将其标记为存活的，如果说是死的，则将其置为null
 void ReferenceProcessor::process_phaseJNI(BoolObjectClosure* is_alive,
                                           OopClosure*        keep_alive,
                                           VoidClosure*       complete_gc) {
@@ -327,6 +329,7 @@ void ReferenceProcessor::process_phaseJNI(BoolObjectClosure* is_alive,
     gclog_or_tty->print(", %u refs", count);
   }
 #endif
+  // hotspot/src/share/vm/runtime/jniHandles.cpp
   JNIHandles::weak_oops_do(is_alive, keep_alive);
   complete_gc->do_void();
 }
@@ -557,6 +560,7 @@ void DiscoveredListIterator::make_active() {
   // the reference object and will fail
   // CT verification.
   if (UseG1GC) {
+    // G1下需要调用额外的bs方法
     BarrierSet* bs = oopDesc::bs();
     HeapWord* next_addr = java_lang_ref_Reference::next_addr(_ref);
 
@@ -565,8 +569,10 @@ void DiscoveredListIterator::make_active() {
     } else {
       bs->write_ref_field_pre((oop*)next_addr, NULL);
     }
+    // 将next属性置为NULL
     java_lang_ref_Reference::set_next_raw(_ref, NULL);
   } else {
+    // 将next属性置为NULL
     java_lang_ref_Reference::set_next(_ref, NULL);
   }
 }
@@ -588,6 +594,8 @@ void DiscoveredListIterator::clear_referent() {
 // referents are not alive, but that should be kept alive for policy reasons.
 // Keep alive the transitive closure of all such referents.
 // 在内存足够的情况下，将对应的SoftReference对象从refs_list中移除。
+// 只适用于SoftReferences对应的DiscoveredList，会遍历所有的SoftReference，找到所有的referent对象是死的但是通过ReferencePolicy
+// 判断不需要清理的SoftReference实例，将其标记为Active状态，将referent对象标记为存活的
 void
 ReferenceProcessor::process_phase1(DiscoveredList&    refs_list,
                                    ReferencePolicy*   policy,
@@ -595,10 +603,13 @@ ReferenceProcessor::process_phase1(DiscoveredList&    refs_list,
                                    OopClosure*        keep_alive,
                                    VoidClosure*       complete_gc) {
   assert(policy != NULL, "Must have a non-NULL policy");
+  // 创建一个迭代器
   DiscoveredListIterator iter(refs_list, keep_alive, is_alive);
   // Decide which softly reachable refs should be kept alive.
   while (iter.has_next()) {
+    // 获取当前Reference的discovered及referent属性的内存地址和值
     iter.load_ptrs(DEBUG_ONLY(!discovery_is_atomic() /* allow_null_referent */));
+    // 判断referent对象是否存活
     bool referent_is_dead = (iter.referent() != NULL) && !iter.is_referent_alive();
     if (referent_is_dead && // 被引用对象referent已经不存活
         // 根据相关策略判断， 这个不存活的对象还不应该被回收
@@ -616,8 +627,10 @@ ReferenceProcessor::process_phase1(DiscoveredList&    refs_list,
       // keep the referent around
       // 标记被引用对象，同时将被引用的对象放到栈中，这样被标记后的对象就不会被垃圾回收。
       iter.make_referent_alive();
+      // 切换到下一个Reference实例
       iter.move_to_next();
     } else {
+      // 不做处理，然后该Reference实例就会被ReferenceHandle Thread处理掉
       iter.next();
     }
   }
@@ -966,13 +979,14 @@ ReferenceProcessor::process_discovered_reflist(
   // during discovery may be different than the number to be used
   // for processing so don't depend of _num_q < _max_num_q as part
   // of the test.
+  // 如果查找过程是并行的，则必须平衡refs_lists中的各个DiscoveredList
   bool must_balance = _discovery_is_mt;
-
+  // ParallelRefProcBalancingEnabled默认为true，表示允许平衡各个处理队列
   if ((mt_processing && ParallelRefProcBalancingEnabled) ||
       must_balance) {
     balance_queues(refs_lists);
   }
-
+  // 统计总的Reference的个数
   size_t total_list_count = total_count(refs_lists);
 
   if (PrintReferenceGC && PrintGCDetails) {
@@ -992,12 +1006,13 @@ ReferenceProcessor::process_discovered_reflist(
       RefProcPhase1Task phase1(*this, refs_lists, policy, true /*marks_oops_alive*/);
       task_executor->execute(phase1);
     } else {
+      // 如果policy不为空，则认为refs_lists就是_discoveredSoftRefs
       for (uint i = 0; i < _max_num_q; i++) {
         process_phase1(refs_lists[i], policy,
                        is_alive, keep_alive, complete_gc);
       }
     }
-  } else { // policy == NULL
+  } else { // policy == NULL policy为NULL，则refs_lists不等于_discoveredSoftRefs
     assert(refs_lists != _discoveredSoftRefs,
            "Policy must be specified for soft references.");
   }

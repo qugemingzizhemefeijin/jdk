@@ -124,7 +124,7 @@ void JNIHandles::oops_do(OopClosure* f) {
 
 
 void JNIHandles::weak_oops_do(BoolObjectClosure* is_alive, OopClosure* f) {
-  _weak_global_handles->weak_oops_do(is_alive, f);
+  _weak_global_handles->weak_oops_do(is_alive, f); // JNIHandleBlock::weak_oops_do line:379
 }
 
 
@@ -378,9 +378,11 @@ void JNIHandleBlock::oops_do(OopClosure* f) {
 
 void JNIHandleBlock::weak_oops_do(BoolObjectClosure* is_alive,
                                   OopClosure* f) {
+  // 遍历所有保存弱引用的JNIBlock
   for (JNIHandleBlock* current = this; current != NULL; current = current->_next) {
     assert(current->pop_frame_link() == NULL,
       "blocks holding weak global JNI handles should not have pop frame link set");
+    // 遍历JNIBlock中保存的所有弱引用oop
     for (int index = 0; index < current->_top; index++) {
       oop* root = &(current->_handles)[index];
       oop value = *root;
@@ -388,17 +390,20 @@ void JNIHandleBlock::weak_oops_do(BoolObjectClosure* is_alive,
       if (value != NULL && Universe::heap()->is_in_reserved(value)) {
         if (is_alive->do_object_b(value)) {
           // The weakly referenced object is alive, update pointer
+          // 如果这个oop是存活的，则将其打标为存活的
           f->do_oop(root);
         } else {
           // The weakly referenced object is not alive, clear the reference by storing NULL
           if (TraceReferenceGC) {
             tty->print_cr("Clearing JNI weak reference (" INTPTR_FORMAT ")", root);
           }
+          // 如果oop不是存活的，则将其置为null
           *root = NULL;
         }
       }
     }
     // the next handle block is valid only if current block is full
+    // 只有当前JNIBlock是满的才会遍历下一个JNIBlock
     if (current->_top < block_size_in_oops) {
       break;
     }
@@ -408,6 +413,7 @@ void JNIHandleBlock::weak_oops_do(BoolObjectClosure* is_alive,
    * JVMTI data structures may also contain weak oops.  The iteration of them
    * is placed here so that we don't need to add it to each of the collectors.
    */
+  // 发布JVMTI事件
   JvmtiExport::weak_oops_do(is_alive, f);
 }
 
