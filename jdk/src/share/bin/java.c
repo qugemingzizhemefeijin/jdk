@@ -104,6 +104,8 @@ static jboolean ParseArguments(int *pargc, char ***pargv,
 static jboolean InitializeJVM(JavaVM **pvm, JNIEnv **penv,
                               InvocationFunctions *ifn);
 static jstring NewPlatformString(JNIEnv *env, char *s);
+
+// 加载Java主类
 static jclass LoadMainClass(JNIEnv *env, int mode, char *name);
 static jclass GetApplicationClass(JNIEnv *env);
 
@@ -1169,6 +1171,7 @@ jclass
 GetLauncherHelperClass(JNIEnv *env)
 {
     if (helperClass == NULL) {
+        // jdk/src/solaris/bin/java_md_common.c
         NULL_CHECK0(helperClass = FindBootStrapClass(env,
                 "sun/launcher/LauncherHelper"));
     }
@@ -1240,15 +1243,17 @@ LoadMainClass(JNIEnv *env, int mode, char *name)
     jstring str;
     jobject result;
     jlong start, end;
+    // 加载sun.launcher.LauncherHelper类
     jclass cls = GetLauncherHelperClass(env);
     NULL_CHECK0(cls);
     if (JLI_IsTraceLauncher()) {
         start = CounterGet();
     }
+    // 获取sun.launcher.LauncherHelper类中定义的checkAndLoadMain()方法的指针
     NULL_CHECK0(mid = (*env)->GetStaticMethodID(env, cls,
                 "checkAndLoadMain",
                 "(ZILjava/lang/String;)Ljava/lang/Class;"));
-
+    // 调用sun.launcher.LauncherHelper类中的checkAndLoadMain()方法
     str = NewPlatformString(env, name);
     result = (*env)->CallStaticObjectMethod(env, cls, mid, USE_STDERR, mode, str);
 

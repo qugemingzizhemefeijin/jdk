@@ -884,8 +884,9 @@ objArrayOop ClassLoader::get_system_packages(TRAPS) {
   return result();
 }
 
-
+// 根据类名称加载类
 instanceKlassHandle ClassLoader::load_classfile(Symbol* h_name, TRAPS) {
+  // 获取文件名称
   ResourceMark rm(THREAD);
   EventMark m("loading class %s", h_name->as_C_string());
   ThreadProfilerMark tpm(ThreadProfilerMark::classLoaderRegion);
@@ -898,15 +899,21 @@ instanceKlassHandle ClassLoader::load_classfile(Symbol* h_name, TRAPS) {
   char* name = st.as_string();
 
   // Lookup stream for parsing .class file
+  // 根据文件名称查找Class文件
   ClassFileStream* stream = NULL;
   int classpath_index = 0;
   {
     PerfClassTraceTime vmtimer(perf_sys_class_lookup_time(),
                                ((JavaThread*) THREAD)->get_thread_stat()->perf_timers_addr(),
                                PerfClassTraceTime::CLASS_LOAD);
+    // 因为ClassPath有多个，所以通过单链表结构将ClassPathEntry连接起来。
+    // 同时，在ClassPathEntry类中还声明了一个虚函数open_stream()，这样就可以循环遍历链表上的结构，
+    // 直到查找到某个类路径下名称为name的Class文件为止，这时open_stream()函数会返回定义此类的Class文件的ClassFileStream实例。
+    // 从第一个ClassPathEntry开始遍历所有的ClassPathEntry
     ClassPathEntry* e = _first_entry;
     while (e != NULL) {
       stream = e->open_stream(name, CHECK_NULL);
+      // 如果找到目标文件， 则跳出循环
       if (stream != NULL) {
         break;
       }
@@ -917,12 +924,16 @@ instanceKlassHandle ClassLoader::load_classfile(Symbol* h_name, TRAPS) {
 
   instanceKlassHandle h;
   if (stream != NULL) {
-
+    // 如果找到了目标Class文件，则加载并解析
     // class file found, parse it
     ClassFileParser parser(stream);
+    // 每个类加载器都对应一个ClassLoaderData实例，通过the_null_class_loader_data()函数获取引导类加载器对应的ClassLoaderData实例。
     ClassLoaderData* loader_data = ClassLoaderData::the_null_class_loader_data();
     Handle protection_domain;
     TempNewSymbol parsed_name = NULL;
+    // 加载并解析Class文件，注意此时并未开始连接
+    // parseClassFile()函数首先解析Class文件中的类、字段和常量池等信息，然后将其转换为C++内部的对等表示形式，
+    // 如将类元信息存储在InstanceKlass实例中，将常量池信息存储在ConstantPool实例中。
     instanceKlassHandle result = parser.parseClassFile(h_name,
                                                        loader_data,
                                                        protection_domain,
@@ -930,7 +941,7 @@ instanceKlassHandle ClassLoader::load_classfile(Symbol* h_name, TRAPS) {
                                                        false,
                                                        CHECK_(h));
 
-    // add to package table
+    // add to package table 调用add_package()函数，把当前类的包名加入_package_hash_table中，避免重复加载解析。
     if (add_package(name, classpath_index, THREAD)) {
       h = result;
     }

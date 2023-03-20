@@ -244,6 +244,9 @@ void initialize_basic_type_klass(Klass* k, TRAPS) {
   k->append_to_sibling_list();
 }
 
+// 对数组及核心类的加载
+// 数组类没有对应的Class文件，因此在类加载阶段，基本类型的一维数组会被HotSpot VM直接创建，并且不需要进行验证、准备和初始化等操作。
+// 类加载就是通过宏来定义一些需要加载的核心类，然后调用类加载器方法来加载类。
 void Universe::genesis(TRAPS) {
   ResourceMark rm;
 
@@ -252,13 +255,14 @@ void Universe::genesis(TRAPS) {
     { MutexLocker mc(Compile_lock);
 
       // determine base vtable size; without that we cannot create the array klasses
+      // 计算数组的vtable的大小，值为5
       compute_base_vtable_size();
 
       // 当JVM启动时若配置-XX:+UseSharedSpaces,则它会通过内存映射文件的方式把classes.jsa文件的内存加载到自己的JVM进程空间中.
       // classes.jsa对应的这一部分内存空间地址一般在永久代内存地址空间的后面.
       // JVM这么做的目的就是让这个JVM的所有实例共享classlist中所有类的类型描述信息以达到节约物理内存的目标。
       // 这里如果没有开启此参数（默认未开启），则会初始化基本类型的一维数组实例TypeArrayKlass。
-      if (!UseSharedSpaces) {
+      if (!UseSharedSpaces) { // UseSharedSpaces默认的值为false
         // 下面的定义都是在Universe.hpp中定义的静态属性
         _boolArrayKlassObj      = TypeArrayKlass::create_klass(T_BOOLEAN, sizeof(jboolean), CHECK);
         _charArrayKlassObj      = TypeArrayKlass::create_klass(T_CHAR,    sizeof(jchar),    CHECK);

@@ -754,11 +754,13 @@ JVM_END
 // public here means public in linker semantics, and is exported only
 // to the JDK, and is not intended to be a public API.
 
+// 查找启动类加载器加载的类
 JVM_ENTRY(jclass, JVM_FindClassFromBootLoader(JNIEnv* env,
                                               const char* name))
   JVMWrapper2("JVM_FindClassFromBootLoader %s", name);
 
   // Java libraries should ensure that name is never null...
+  // 检查类名是否合法
   if (name == NULL || (int)strlen(name) > Symbol::max_length()) {
     // It's impossible to create this class;  the name cannot fit
     // into the constant pool.
@@ -766,6 +768,7 @@ JVM_ENTRY(jclass, JVM_FindClassFromBootLoader(JNIEnv* env,
   }
 
   TempNewSymbol h_name = SymbolTable::new_symbol(name, CHECK_NULL);
+  // 调用SystemDictionary.resolve_or_null()函数解析目标类，如果未找到，返回null
   Klass* k = SystemDictionary::resolve_or_null(h_name, CHECK_NULL);
   if (k == NULL) {
     return NULL;
@@ -774,6 +777,7 @@ JVM_ENTRY(jclass, JVM_FindClassFromBootLoader(JNIEnv* env,
   if (TraceClassResolution) {
     trace_class_resolution(k);
   }
+  // 将Klass实例转换成java.lang.Class对象
   return (jclass) JNIHandles::make_local(env, k->java_mirror());
 JVM_END
 
@@ -783,6 +787,7 @@ JVM_ENTRY(jclass, JVM_FindClassFromClassLoader(JNIEnv* env, const char* name,
   JVMWrapper3("JVM_FindClassFromClassLoader %s throw %s", name,
                throwError ? "error" : "exception");
   // Java libraries should ensure that name is never null...
+  // 检查类名是否合法
   if (name == NULL || (int)strlen(name) > Symbol::max_length()) {
     // It's impossible to create this class;  the name cannot fit
     // into the constant pool.
@@ -882,6 +887,7 @@ static jclass jvm_define_class_common(JNIEnv *env, const char *name,
   // Since exceptions can be thrown, class initialization can take place
   // if name is NULL no check for class name in .class stream has to be made.
   TempNewSymbol class_name = NULL;
+  // 在HotSpot VM中，字符串使用Symbol实例表示，以达到重用和唯一的目的
   if (name != NULL) {
     const int str_len = (int)strlen(name);
     if (str_len > Symbol::max_length()) {
@@ -891,6 +897,9 @@ static jclass jvm_define_class_common(JNIEnv *env, const char *name,
     }
     class_name = SymbolTable::new_symbol(name, str_len, CHECK_NULL);
   }
+
+  // HotSpot VM利用ClassFileStream将要加载的Class文件转换成文件流，
+  // 然后调用SystemDictionary::resolve_from_stream()函数生成Klass实例。
 
   ResourceMark rm(THREAD);
   ClassFileStream st((u1*) buf, len, (char *)source);
@@ -941,35 +950,40 @@ JVM_ENTRY(jclass, JVM_FindLoadedClass(JNIEnv *env, jobject loader, jstring name)
   ResourceMark rm(THREAD);
 
   Handle h_name (THREAD, JNIHandles::resolve_non_null(name));
+  // 获取类名对应的Handle
   Handle string = java_lang_String::internalize_classname(h_name, CHECK_NULL);
 
+  // 检查类名是否为空
   const char* str   = java_lang_String::as_utf8_string(string());
   // Sanity check, don't expect null
   if (str == NULL) return NULL;
 
+  // 判断类名是否过长
   const int str_len = (int)strlen(str);
   if (str_len > Symbol::max_length()) {
     // It's impossible to create this class;  the name cannot fit
     // into the constant pool.
     return NULL;
   }
+  // 创建一个临时的Symbol实例
   TempNewSymbol klass_name = SymbolTable::new_symbol(str, str_len, CHECK_NULL);
 
   // Security Note:
   //   The Java level wrapper will perform the necessary security check allowing
   //   us to pass the NULL as the initiating class loader.
+  // 获取类加载器对应的Handle
   Handle h_loader(THREAD, JNIHandles::resolve(loader));
   if (UsePerfData) {
     is_lock_held_by_thread(h_loader,
                            ClassLoader::sync_JVMFindLoadedClassLockFreeCounter(),
                            THREAD);
   }
-
+  // 查找目标类是否存在
   Klass* k = SystemDictionary::find_instance_or_array_klass(klass_name,
                                                               h_loader,
                                                               Handle(),
                                                               CHECK_NULL);
-
+  // 将Klass实例转换成java.lang.Class对象
   return (k == NULL) ? NULL :
             (jclass) JNIHandles::make_local(env, k->java_mirror());
 JVM_END
@@ -3960,12 +3974,13 @@ jclass find_class_from_class_loader(JNIEnv* env, Symbol* name, jboolean init, Ha
   // Security Note:
   //   The Java level wrapper will perform the necessary security check allowing
   //   us to pass the NULL as the initiating class loader.
+  // 遵循双亲委派机制加载类
   Klass* klass = SystemDictionary::resolve_or_fail(name, loader, protection_domain, throwError != 0, CHECK_NULL);
 
   KlassHandle klass_handle(THREAD, klass);
   // Check if we should initialize the class
-  if (init && klass_handle->oop_is_instance()) {
-    klass_handle->initialize(CHECK_NULL);
+  if (init && klass_handle->oop_is_instance()) { // init的值为true
+    klass_handle->initialize(CHECK_NULL); // 对类进行初始化操作
   }
   return (jclass) JNIHandles::make_local(env, klass_handle->java_mirror());
 }

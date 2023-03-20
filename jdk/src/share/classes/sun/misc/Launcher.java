@@ -66,6 +66,7 @@ public class Launcher {
 
     public Launcher() {
         // Create the extension class loader
+        // 首先创建扩展类加载器
         ClassLoader extcl;
         try {
             extcl = ExtClassLoader.getExtClassLoader();
@@ -75,6 +76,7 @@ public class Launcher {
         }
 
         // Now create the class loader to use to launch the application
+        // 以ExtClassloader为父加载器创建AppClassLoader
         try {
             loader = AppClassLoader.getAppClassLoader(extcl);
         } catch (IOException e) {
@@ -83,6 +85,7 @@ public class Launcher {
         }
 
         // Also set the context class loader for the primordial thread.
+        // 设置默认线程上下文加载器为AppClassloader
         Thread.currentThread().setContextClassLoader(loader);
 
         // Finally, install a security manager if requested
@@ -111,6 +114,14 @@ public class Launcher {
 
     /*
      * Returns the class loader used to launch the main application.
+     *
+     * 扩展类加载器由sun.misc.Launcher$ExtClassLoader类实现，
+     * 负责将<JAVA_HOME >/lib/ext目录或者由系统变量-Djava.ext.dir指定的目录中的类库加载到内存中。
+     *
+     * 在ExtClassLoader类的构造函数中调用父类的构造函数时，传递的第2个参数的值为null，这个值会赋值给parent字段。
+     * 当parent字段的值为null时，在java.lang.ClassLoader类中实现的loadClass()方法会调用findBootstrapClassOrNull()方法加载类，
+     * 最终会调用C++语言实现的ClassLoader类中的相关函数加载类。
+     *
      */
     public ClassLoader getClassLoader() {
         return loader;
@@ -118,6 +129,7 @@ public class Launcher {
 
     /*
      * The class loader used for loading installed extensions.
+     *
      */
     static class ExtClassLoader extends URLClassLoader {
 
@@ -131,7 +143,7 @@ public class Launcher {
          */
         public static ExtClassLoader getExtClassLoader() throws IOException
         {
-            final File[] dirs = getExtDirs();
+            final File[] dirs = getExtDirs(); // 获取加载类的加载路径
 
             try {
                 // Prior implementations of this doPrivileged() block supplied
@@ -145,7 +157,7 @@ public class Launcher {
                             for (int i = 0; i < len; i++) {
                                 MetaIndex.registerDirectory(dirs[i]);
                             }
-                            return new ExtClassLoader(dirs);
+                            return new ExtClassLoader(dirs); // 实例化扩展类加载器
                         }
                     });
             } catch (java.security.PrivilegedActionException e) {
@@ -161,6 +173,7 @@ public class Launcher {
          * Creates a new ExtClassLoader for the specified directories.
          */
         public ExtClassLoader(File[] dirs) throws IOException {
+            // 为parent字段传递的参数为null
             super(getExtURLs(dirs), null, factory);
         }
 
@@ -255,6 +268,14 @@ public class Launcher {
     /**
      * The class loader used for loading from java.class.path.
      * runs in a restricted security context.
+     *
+     * 应用类加载器由sun.misc.Launcher$AppClassLoader类实现，
+     * 负责将系统环境变量-classpath、-cp和系统属性java.class.path指定的路径下的类库加载到内存中。
+     *
+     * 在Launcher类的构造方法中实例化应用类加载器AppClassLoader时，会调用getApp-ClassLoader()方法获取应用类加载器，
+     * 传入的参数是一个扩展类加载器ExtClassLoader对象，这样应用类加载器的父加载器就变成了扩展类加载器（与父加载器并非继承关系）。
+     * 用户自定义的无参类加载器的父类加载器默认是AppClassLoader类加载器。
+     *
      */
     static class AppClassLoader extends URLClassLoader {
 
@@ -289,6 +310,7 @@ public class Launcher {
          * Creates a new AppClassLoader
          */
         AppClassLoader(URL[] urls, ClassLoader parent) {
+            // parent通常是ExtClassLoader对象
             super(urls, parent, factory);
         }
 

@@ -474,7 +474,7 @@ public enum LauncherHelper {
      */
     public static Class<?> checkAndLoadMain(boolean printToStderr,
                                             int mode,
-                                            String what) {
+                                            String what) { // what 就是我们的main方法的ClassName，AppClassLoader加载
         initOutput(printToStderr);
         // get the class name
         String cn = null;
@@ -492,7 +492,7 @@ public enum LauncherHelper {
         cn = cn.replace('/', '.');
         Class<?> mainClass = null;
         try {
-            mainClass = scloader.loadClass(cn);
+            mainClass = scloader.loadClass(cn); // 根据类名称加载主类
         } catch (NoClassDefFoundError | ClassNotFoundException cnfe) {
             if (System.getProperty("os.name", "").contains("OS X")
                 && Normalizer.isNormalized(cn, Normalizer.Form.NFD)) {
