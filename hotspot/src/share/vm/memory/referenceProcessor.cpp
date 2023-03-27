@@ -244,6 +244,7 @@ ReferenceProcessorStats ReferenceProcessor::process_discovered_references(
   size_t soft_count = 0;
   {
     GCTraceTime tt("SoftReference", trace_time, false, gc_timer);
+    // 处理_discoveredSoftRefs，注意传入的clear_referent的值为true，除_discoveredSoftRefs传入的ReferencePolicy有具体值外，其他类型的都是传NULL
     soft_count =
       process_discovered_reflist(_discoveredSoftRefs, _current_soft_ref_policy, true,
                                  is_alive, keep_alive, complete_gc, task_executor);
@@ -256,6 +257,7 @@ ReferenceProcessorStats ReferenceProcessor::process_discovered_references(
   size_t weak_count = 0;
   {
     GCTraceTime tt("WeakReference", trace_time, false, gc_timer);
+    // 处理_discoveredSoftRefs，注意传入的clear_referent的值为true
     weak_count =
       process_discovered_reflist(_discoveredWeakRefs, NULL, true,
                                  is_alive, keep_alive, complete_gc, task_executor);
@@ -265,6 +267,7 @@ ReferenceProcessorStats ReferenceProcessor::process_discovered_references(
   size_t final_count = 0;
   {
     GCTraceTime tt("FinalReference", trace_time, false, gc_timer);
+    // 处理_discoveredFinalRefs，注意传入的clear_referent的值为false，因为后续需要调用referent对象的finalize方法
     final_count =
       process_discovered_reflist(_discoveredFinalRefs, NULL, false,
                                  is_alive, keep_alive, complete_gc, task_executor);
@@ -274,6 +277,7 @@ ReferenceProcessorStats ReferenceProcessor::process_discovered_references(
   size_t phantom_count = 0;
   {
     GCTraceTime tt("PhantomReference", trace_time, false, gc_timer);
+    // 处理_discoveredPhantomRefs，注意传入的clear_referent的值为false，子类可能需要使用referent对象
     phantom_count =
       process_discovered_reflist(_discoveredPhantomRefs, NULL, false,
                                  is_alive, keep_alive, complete_gc, task_executor);
@@ -289,9 +293,11 @@ ReferenceProcessorStats ReferenceProcessor::process_discovered_references(
     if (task_executor != NULL) {
       task_executor->set_single_threaded_mode();
     }
+    // 处理JNI的弱引用
     process_phaseJNI(is_alive, keep_alive, complete_gc);
   }
 
+  // ReferenceProcessorStats就是一个简单的数据结构
   return ReferenceProcessorStats(soft_count, weak_count, final_count, phantom_count);
 }
 
@@ -653,11 +659,13 @@ ReferenceProcessor::pp2_work(DiscoveredList&    refs_list,
                              BoolObjectClosure* is_alive,
                              OopClosure*        keep_alive) {
   assert(discovery_is_atomic(), "Error");
+  // 执行遍历
   DiscoveredListIterator iter(refs_list, keep_alive, is_alive);
   while (iter.has_next()) {
     iter.load_ptrs(DEBUG_ONLY(false /* allow_null_referent */));
     DEBUG_ONLY(oop next = java_lang_ref_Reference::next(iter.obj());)
     assert(next == NULL, "Should not discover inactive Reference");
+    // 如果referent对象是存活的
     if (iter.is_referent_alive()) {
       if (TraceReferenceGC) {
         gclog_or_tty->print_cr("Dropping strongly reachable reference (" INTPTR_FORMAT ": %s)",
@@ -665,11 +673,14 @@ ReferenceProcessor::pp2_work(DiscoveredList&    refs_list,
       }
       // The referent is reachable after all.
       // Remove Reference object from list.
+      // 将当前Reference实例从DiscoveredList中移除
       iter.remove();
       // Update the referent pointer as necessary: Note that this
       // should not entail any recursive marking because the
       // referent must already have been traversed.
+      // 将referent对象标记成存活的
       iter.make_referent_alive();
+      // 切换到下一个Reference实例
       iter.move_to_next();
     } else {
       iter.next();
@@ -702,6 +713,7 @@ ReferenceProcessor::pp2_work_concurrent_discovery(DiscoveredList&    refs_list,
       iter.remove();
       // Trace the cohorts
       iter.make_referent_alive();
+      // 多了一步，让next属性即它自己保持alive
       if (UseCompressedOops) {
         keep_alive->do_oop((narrowOop*)next_addr);
       } else {
@@ -726,6 +738,7 @@ ReferenceProcessor::pp2_work_concurrent_discovery(DiscoveredList&    refs_list,
 // Traverse the list and process the referents, by either
 // clearing them or keeping them (and their reachable
 // closure) alive.
+// 遍历DiscoveredList，根据参数clear_referent，要么将referent属性置为null，要么将referent对象标记为存活的
 void
 ReferenceProcessor::process_phase3(DiscoveredList&    refs_list,
                                    bool               clear_referent,
@@ -735,13 +748,16 @@ ReferenceProcessor::process_phase3(DiscoveredList&    refs_list,
   ResourceMark rm;
   DiscoveredListIterator iter(refs_list, keep_alive, is_alive);
   while (iter.has_next()) {
+    // 将当前Reference实例标记为存活的
     iter.update_discovered();
     iter.load_ptrs(DEBUG_ONLY(false /* allow_null_referent */));
     if (clear_referent) {
       // NULL out referent pointer
+      // 将referent属性置为null
       iter.clear_referent();
     } else {
       // keep the referent around
+      // 将referent属性标记为存活的
       iter.make_referent_alive();
     }
     if (TraceReferenceGC) {
@@ -762,11 +778,13 @@ void
 ReferenceProcessor::clear_discovered_references(DiscoveredList& refs_list) {
   oop obj = NULL;
   oop next = refs_list.head();
+  // 遍历DiscoveredList，将所有的Reference实例的discovered属性置为null
   while (next != obj) {
     obj = next;
     next = java_lang_ref_Reference::discovered(obj);
     java_lang_ref_Reference::set_discovered_raw(obj, NULL);
   }
+  // 将DiscoveredList恢复成初始状态
   refs_list.set_head(NULL);
   refs_list.set_length(0);
 }
@@ -776,6 +794,7 @@ ReferenceProcessor::abandon_partial_discovered_list(DiscoveredList& refs_list) {
   clear_discovered_references(refs_list);
 }
 
+// 该方法用于清空所有DiscoveredList中的Reference实例，将Reference实例的discovered属性置为null，将DiscoveredList恢复成初始状态
 void ReferenceProcessor::abandon_partial_discovery() {
   // loop over the lists
   for (uint i = 0; i < _max_num_q * number_of_subclasses_of_ref(); i++) {
@@ -1045,6 +1064,7 @@ ReferenceProcessor::process_discovered_reflist(
   return total_list_count;
 }
 
+// 该方法用于从各类型的DiscoveredList中移除referent属性为null或者next属性不为null的Reference实例，其实现与之前的preclean_discovered_references等遍历处理方法大同小异
 void ReferenceProcessor::clean_up_discovered_references() {
   // loop over the lists
   for (uint i = 0; i < _max_num_q * number_of_subclasses_of_ref(); i++) {
@@ -1059,13 +1079,17 @@ void ReferenceProcessor::clean_up_discovered_references() {
 
 void ReferenceProcessor::clean_up_discovered_reflist(DiscoveredList& refs_list) {
   assert(!discovery_is_atomic(), "Else why call this method?");
+  // 执行遍历
   DiscoveredListIterator iter(refs_list, NULL, NULL);
   while (iter.has_next()) {
+    // 获取当前Reference实例的discovered和referent属性
     iter.load_ptrs(DEBUG_ONLY(true /* allow_null_referent */));
+    // 获取当前Reference实例的next属性
     oop next = java_lang_ref_Reference::next(iter.obj());
     assert(next->is_oop_or_null(), "bad next field");
     // If referent has been cleared or Reference is not active,
     // drop it.
+    // 如果referent属性为null，即被清除了，或者next属性不为null，即当前Reference实例不是Active状态
     if (iter.referent() == NULL || next != NULL) {
       debug_only(
         if (PrintGCDetails && TraceReferenceGC) {
@@ -1076,7 +1100,9 @@ void ReferenceProcessor::clean_up_discovered_reflist(DiscoveredList& refs_list) 
         }
       )
       // Remove Reference object from list
+      // 将Reference从DiscoveredList中移除
       iter.remove();
+      // 切换到下一个Reference实例
       iter.move_to_next();
     } else {
       iter.next();
@@ -1367,6 +1393,9 @@ bool ReferenceProcessor::discover_reference(oop obj, ReferenceType rt) {
 // whose referents are alive, and by marking from those that
 // are not active. These lists can be handled here
 // in any order and, indeed, concurrently.
+// 该方法用于从各类型的DiscoveredList中移除referent属性是存活的或者是null或者next属性不为null的Reference实例，移除逻辑等同于process_phase2方法的实现，只有CMSCollector调用
+// 从各类型的DiscoveredList中移除referent属性是存活的或者是null或者next属性不为null的Reference实例，移除逻辑等同于process_phase2方法的实现
+// 各类型的DiscoveredList的处理顺序是随意的，可以并发执行
 void ReferenceProcessor::preclean_discovered_references(
   BoolObjectClosure* is_alive,
   OopClosure* keep_alive,
@@ -1443,11 +1472,15 @@ ReferenceProcessor::preclean_discovered_reflist(DiscoveredList&    refs_list,
                                                 OopClosure*        keep_alive,
                                                 VoidClosure*       complete_gc,
                                                 YieldClosure*      yield) {
+  // 执行遍历
   DiscoveredListIterator iter(refs_list, keep_alive, is_alive);
   while (iter.has_next()) {
+    // 获取当前Reference实例的discovered和referent属性
     iter.load_ptrs(DEBUG_ONLY(true /* allow_null_referent */));
     oop obj = iter.obj();
+    // 获取当前Reference实例的next属性
     oop next = java_lang_ref_Reference::next(obj);
+    // 如果referent属性为null或者是存活的或者next属性不为空，即当前Reference实例不是Active状态
     if (iter.referent() == NULL || iter.is_referent_alive() ||
         next != NULL) {
       // The referent has been cleared, or is alive, or the Reference is not
@@ -1457,9 +1490,12 @@ ReferenceProcessor::preclean_discovered_reflist(DiscoveredList&    refs_list,
                                (void *)iter.obj(), iter.obj()->klass()->internal_name());
       }
       // Remove Reference object from list
+      // 将当前Reference实例从DiscoveredList中移除
       iter.remove();
       // Keep alive its cohort.
+      // 将referent属性标记为存活的
       iter.make_referent_alive();
+      // 将next属性标记为存活的
       if (UseCompressedOops) {
         narrowOop* next_addr = (narrowOop*)java_lang_ref_Reference::next_addr(obj);
         keep_alive->do_oop(next_addr);
@@ -1467,6 +1503,7 @@ ReferenceProcessor::preclean_discovered_reflist(DiscoveredList&    refs_list,
         oop* next_addr = (oop*)java_lang_ref_Reference::next_addr(obj);
         keep_alive->do_oop(next_addr);
       }
+      // 切换到下一个Reference实例
       iter.move_to_next();
     } else {
       iter.next();

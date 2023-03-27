@@ -177,6 +177,7 @@ public:
   // Update the discovered field.
   inline void update_discovered() {
     // First _prev_next ref actually points into DiscoveredList (gross).
+    // _prev_next实际指向当前Reference实例
     if (UseCompressedOops) {
       if (!oopDesc::is_null(*(narrowOop*)_prev_next)) {
         _keep_alive->do_oop((narrowOop*)_prev_next);
