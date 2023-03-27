@@ -403,24 +403,29 @@ public abstract class ClassLoader {
     {
         synchronized (getClassLoadingLock(name)) {
             // First, check if the class has already been loaded
+            // 首先从HotSpot VM缓存查找该类
             Class<?> c = findLoadedClass(name);
             if (c == null) {
                 long t0 = System.nanoTime();
                 try {
+                    // 然后委派给父类加载器进行加载
                     if (parent != null) {
                         c = parent.loadClass(name, false);
                     } else {
+                        // 如果父类加载器为null， 则委派给启动类加载器加载
                         c = findBootstrapClassOrNull(name);
                     }
                 } catch (ClassNotFoundException e) {
                     // ClassNotFoundException thrown if class not found
                     // from the non-null parent class loader
+                    // 如果父类加载器抛出ClassNotFoundException异常， 则表明父类无法完成加载请求
                 }
 
                 if (c == null) {
                     // If still not found, then invoke findClass in order
                     // to find the class.
                     long t1 = System.nanoTime();
+                    // 当前类加载器尝试自己加载类
                     c = findClass(name);
 
                     // this is the defining class loader; record the stats
@@ -1442,9 +1447,11 @@ public abstract class ClassLoader {
         if (!sclSet) {
             if (scl != null)
                 throw new IllegalStateException("recursive invocation");
+            // 获取Launcher对象
             sun.misc.Launcher l = sun.misc.Launcher.getLauncher();
             if (l != null) {
                 Throwable oops = null;
+                // 获取应用类加载器AppClassLoader对象
                 scl = l.getClassLoader();
                 try {
                     scl = AccessController.doPrivileged(

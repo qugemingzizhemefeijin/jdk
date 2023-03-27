@@ -144,6 +144,8 @@ class PackageHashtable;
 class PackageInfo;
 template <MEMFLAGS F> class HashtableBucket;
 
+// 引导类加载器由ClassLoader类实现，这个ClassLoader类是用C++语言编写的，负责将<JAVA_HOME>/lib目录、
+// -Xbootclasspath选项指定的目录和系统属性sun.boot.class.path指定的目录下的核心类库加载到内存中。
 class ClassLoader: AllStatic {
  public:
   enum SomeConstants {
@@ -281,7 +283,7 @@ class ClassLoader: AllStatic {
     return _load_instance_class_failCounter;
   }
 
-  // Load individual .class file
+  // Load individual .class file 根据类名加载类
   static instanceKlassHandle load_classfile(Symbol* h_name, TRAPS);
 
   // If the specified package has been loaded by the system, then returns

@@ -94,6 +94,7 @@ class Ticks;
 // The order of these definitions is significant; it is the order in which
 // preloading is actually performed by initialize_preloaded_classes.
 
+// 核心类的预加载
 #define WK_KLASSES_DO(do_klass)                                                                                          \
   /* well-known classes */                                                                                               \
   do_klass(Object_klass,                                java_lang_Object,                          Pre                 ) \
@@ -184,7 +185,13 @@ class Ticks;
   do_klass(Long_klass,                                  java_lang_Long,                            Pre                 ) \
   /*end*/
 
+// SystemDictionary用来保存类加载器加载过的类信息。
+// 准确地说，SystemDictionary并不是一个容器，真正用来保存类信息的容器是Dictionary。
+// 每个ClassLoaderData中都保存着一个私有的Dictionary，而SystemDictionary只是一个拥有很多静态函数的工具类而已。
 
+// Dictionary的底层数据存储结构为Hash，key由类名（含有包路径）和类加载器两者确定， value则为具体加载的类对应的instanceKlassHandle实例。
+// 在系统词典里使用类加载器和类的包路径+类名唯一确定一个类。 这也验证了在Java中同一个类使用两个类加载器进行加载后，
+// 加载的两个类是不一样的，也是不能相互赋值的。
 class SystemDictionary : AllStatic {
   friend class VMStructs;
   friend class SystemDictionaryHandles;
@@ -192,7 +199,10 @@ class SystemDictionary : AllStatic {
  public:
   enum WKID {
     NO_WKID = 0,
-
+    // 宏展开后如下 do_klass(Long_klass, java_lang_Long, Pre)：
+    // Object_klass_knum, java_lang_Object_knum = Object_klass_knum, \
+    // String_klass_knum, java_lang_String_knum = String_klass_knum, \
+    // Class_klass_knum, java_lang_Class_knum = Class_klass_knum, \
     #define WK_KLASS_ENUM(name, symbol, ignore_o) WK_KLASS_ENUM_NAME(name), WK_KLASS_ENUM_NAME(symbol) = WK_KLASS_ENUM_NAME(name),
     WK_KLASSES_DO(WK_KLASS_ENUM)
     #undef WK_KLASS_ENUM
@@ -203,12 +213,13 @@ class SystemDictionary : AllStatic {
   };
 
   enum InitOption {
+    // 标记为Pre和Pre_JSR292的类会调用resolve_or_fail()函数进行预加载如果类不存在，则报错
     Pre,                        // preloaded; error if not present
     Pre_JSR292,                 // preloaded if EnableInvokeDynamic
 
     // Order is significant.  Options before this point require resolve_or_fail.
     // Options after this point will use resolve_or_null instead.
-
+    // 标记为Opt、Opt_Only_JDK14NewRef和Opt_Only_JDK15的类会调用resolve_or_null()函数进行预加载，如果不存在，则返回NULL
     Opt,                        // preload tried; NULL if not present
     Opt_Only_JDK14NewRef,       // preload tried; use only with NewReflection
     Opt_Only_JDK15,             // preload tried; use only with JDK1.5+
@@ -465,7 +476,7 @@ public:
   // Returns default system loader
   static oop java_system_loader();
 
-  // Compute the default system loader
+  // Compute the default system loader 初始化 _java_system_loader 属性。
   static void compute_java_system_loader(TRAPS);
 
   // Register a new class loader

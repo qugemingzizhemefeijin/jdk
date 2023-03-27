@@ -263,7 +263,7 @@ Java_java_lang_ClassLoader_findBootstrapClass(JNIEnv *env, jobject loader,
     if (!VerifyClassname(clname, JNI_TRUE)) {  /* expects slashed name */
         goto done;
     }
-
+    // 调用JVM_FindClassFromBootLoader()函数可以查找启动类加载器加载的类，如果没有查到，该函数会返回NULL。
     cls = JVM_FindClassFromBootLoader(env, clname);
 
  done:
@@ -274,6 +274,7 @@ Java_java_lang_ClassLoader_findBootstrapClass(JNIEnv *env, jobject loader,
     return cls;
 }
 
+// 判断类是否已经加载。
 JNIEXPORT jclass JNICALL
 Java_java_lang_ClassLoader_findLoadedClass0(JNIEnv *env, jobject loader,
                                            jstring name)

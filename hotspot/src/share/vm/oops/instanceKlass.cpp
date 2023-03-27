@@ -1439,6 +1439,7 @@ static int binary_search(Array<Method*>* methods, Symbol* name) {
 }
 
 // find_method looks up the name/signature in the local methods array
+// 从当前的InstanceKlass中的_methods数组中查找，这个数组中只存储了当前类中定义的方法
 Method* InstanceKlass::find_method(Symbol* name, Symbol* signature) const {
   return InstanceKlass::find_method(methods(), name, signature);
 }
@@ -1457,6 +1458,7 @@ Method* InstanceKlass::find_instance_method(
 // find_method looks up the name/signature in the local methods array
 Method* InstanceKlass::find_method(
     Array<Method*>* methods, Symbol* name, Symbol* signature) {
+  // 二分查找算法在_methods属性中查找方法
   int hit = find_method_index(methods, name, signature);
   return hit >= 0 ? methods->at(hit): NULL;
 }
@@ -1465,6 +1467,7 @@ Method* InstanceKlass::find_method(
 // default_vtable_indices, and indirectly by find_method
 // find_method_index looks in the local methods array to return the index
 // of the matching name/signature
+// 二分查找算法在_methods属性中查找方法
 int InstanceKlass::find_method_index(
     Array<Method*>* methods, Symbol* name, Symbol* signature) {
   int hit = binary_search(methods, name);
@@ -1518,8 +1521,11 @@ int InstanceKlass::find_method_by_name(
 Method* InstanceKlass::uncached_lookup_method(Symbol* name, Symbol* signature) const {
   Klass* klass = const_cast<InstanceKlass*>(this);
   while (klass != NULL) {
+    // 调用find_method()函数从当前InstanceKlass的_methods数组中查找名称和签名相同的方法
     Method* method = InstanceKlass::cast(klass)->find_method(name, signature);
     if (method != NULL) return method;
+    // 如果调用find_method()函数无法从当前类中找到对应的方法，那么就通过while循环一直从继承链往上查找，
+    // 如果找到就直接返回，否则返回NULL。
     klass = InstanceKlass::cast(klass)->super();
   }
   return NULL;

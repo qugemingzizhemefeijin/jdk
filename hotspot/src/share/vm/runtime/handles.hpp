@@ -306,14 +306,21 @@ class HandleArea: public Arena {
 // The base class of HandleMark should have been StackObj but we also heap allocate
 // a HandleMark when a thread is created. The operator new is for this special case.
 
+// HandleMark主要用于记录当前线程的HandleArea的内存地址top，当相关的作用域执行完成后，当前作用域之内的HandleMark实例会自动销毁。
+// 在HandleMark的析构函数中会将HandleArea当前的内存地址到方法调用前的内存地址top之间所有分配的地址中存储的内容都销毁，
+// 然后恢复当前线程的HandleArea的内存地址top为方法调用前的状态。
+
+// 一般情况下，HandleMark直接在线程栈内存上分配内存，应该继承自StackObj，但有时HandleMark也需要在堆内存上分配，
+// 因此没有继承自StackObj，并且为了支持在堆内存上分配内存，重载了new和delete方法。
 class HandleMark {
  private:
-  Thread *_thread;              // thread that owns this mark
+  Thread *_thread;              // thread that owns this mark 拥有当前HandleMark实例的线程
   HandleArea *_area;            // saved handle area
-  Chunk *_chunk;                // saved arena chunk
+  Chunk *_chunk;                // saved arena chunk Chunk和Area配合， 获得准确的内存地址
   char *_hwm, *_max;            // saved arena info
   size_t _size_in_bytes;        // size of handle area
   // Link to previous active HandleMark in thread
+  // 通过如下属性让HandleMark形成单链表
   HandleMark* _previous_handle_mark;
 
   void initialize(Thread* thread);                // common code for constructors
