@@ -101,6 +101,18 @@ class WorkerThread;
 //   - JavaThread
 //   - WatcherThread
 
+// 在HotSpot虚拟机中，Thread类是用于表示线程的实体。每个Java线程都会对应一个与之对应的Thread对象，
+// Thread对象内部包含了该线程的状态、调度优先级、执行栈、栈帧、持有的锁等信息。
+
+// Thread类的主要作用如下：
+//   1.线程状态管理：Thread类中包含了线程的状态信息，如新建状态、运行状态、等待状态、阻塞状态和终止状态。这些状态信息会被HotSpot虚拟机用来控制线程的运行和调度。
+//   2.线程调度优先级管理：Thread类中包含了线程的调度优先级信息，用于控制线程在竞争CPU资源时的优先级顺序。
+//     HotSpot虚拟机会根据线程的调度优先级和其他因素来决定哪个线程应该获得CPU资源执行。
+//   3.线程执行栈管理：每个线程都有自己的执行栈，Thread类中包含了执行栈相关的信息，如栈底地址、栈顶地址、栈容量等。
+//     HotSpot虚拟机会使用这些信息来管理线程的执行栈，确保线程的栈空间足够，并在需要时自动进行栈空间的扩展和收缩。
+//   4.栈帧管理：Thread类中还包含了线程的当前栈帧信息，栈帧是用于支持方法调用和返回的数据结构，每个方法调用都会创建一个栈帧。
+//     HotSpot虚拟机会使用Thread类中的栈帧信息来管理线程的方法调用栈。
+//   5.锁管理：Thread类中还包含了线程当前持有的锁信息，HotSpot虚拟机会根据这些信息来判断线程是否可以获得某个锁或者释放某个锁。
 class Thread: public ThreadShadow {
   friend class VMStructs;
  private:
@@ -111,7 +123,7 @@ class Thread: public ThreadShadow {
   // int         _exception_line;                   // line information for exception (debugging only)
  protected:
   // Support for forcing alignment of thread objects for biased locking
-  void*       _real_malloc_address;
+  void*       _real_malloc_address;                                     // 在使用自定义内存分配器时，表示当前线程使用的实际内存分配器地址
  public:
   void* operator new(size_t size) throw() { return allocate(size, true); }
   void* operator new(size_t size, const std::nothrow_t& nothrow_constant) throw() {
@@ -185,7 +197,7 @@ class Thread: public ThreadShadow {
   //
 
   // suspend/resume lock: used for self-suspend
-  Monitor* _SR_lock;
+  Monitor* _SR_lock;                                                // 线程状态更改的监视器
 
  protected:
   enum SuspendFlags {
@@ -202,10 +214,10 @@ class Thread: public ThreadShadow {
 
   // various suspension related flags - atomically updated
   // overloaded for async exception checking in check_special_condition_for_native_trans.
-  volatile uint32_t _suspend_flags;
+  volatile uint32_t _suspend_flags;                                 // 线程挂起标志
 
  private:
-  int _num_nested_signal;
+  int _num_nested_signal;                                           // 嵌套信号量计数器
 
  public:
   void enter_signal_handler() { _num_nested_signal++; }
@@ -217,17 +229,17 @@ class Thread: public ThreadShadow {
   static void trace(const char* msg, const Thread* const thread) PRODUCT_RETURN;
 
   // Active_handles points to a block of handles
-  JNIHandleBlock* _active_handles;
+  JNIHandleBlock* _active_handles;                                  // 当前线程持有的JNI句柄链表头指针
 
   // One-element thread local free list
-  JNIHandleBlock* _free_handle_block;
+  JNIHandleBlock* _free_handle_block;                               // 空闲JNI句柄块的链表头指针
 
   // Point to the last handle mark
-  HandleMark* _last_handle_mark;
+  HandleMark* _last_handle_mark;                                    // JNI句柄Mark的指针
 
   // The parity of the last strong_roots iteration in which this thread was
   // claimed as a task.
-  jint _oops_do_parity;
+  jint _oops_do_parity;                                             // 标识用于oop迭代的数据结构是否需要更新
 
   public:
    void set_last_handle_mark(HandleMark* mark)   { _last_handle_mark = mark; }
@@ -258,33 +270,33 @@ class Thread: public ThreadShadow {
   friend class ThreadLocalStorage;
   friend class GC_locker;
 
-  ThreadLocalAllocBuffer _tlab;                 // Thread-local eden
-  jlong _allocated_bytes;                       // Cumulative number of bytes allocated on
+  ThreadLocalAllocBuffer _tlab;                 // Thread-local eden                        // 线程本地分配缓存
+  jlong _allocated_bytes;                       // Cumulative number of bytes allocated on  // 当前线程已分配的字节数
                                                 // the Java heap
 
   TRACE_DATA _trace_data;                       // Thread-local data for tracing
 
-  int   _vm_operation_started_count;            // VM_Operation support
-  int   _vm_operation_completed_count;          // VM_Operation support
+  int   _vm_operation_started_count;            // VM_Operation support                     // 记录已开始的VM操作数量
+  int   _vm_operation_completed_count;          // VM_Operation support                     // 记录已完成的VM操作数量
 
-  ObjectMonitor* _current_pending_monitor;      // ObjectMonitor this thread
+  ObjectMonitor* _current_pending_monitor;      // ObjectMonitor this thread                // 等待当前线程持有的监视器
                                                 // is waiting to lock
   bool _current_pending_monitor_is_from_java;   // locking is from Java code
 
   // ObjectMonitor on which this thread called Object.wait()
-  ObjectMonitor* _current_waiting_monitor;
+  ObjectMonitor* _current_waiting_monitor;                                                  // 当前线程等待的监视器
 
   // Private thread-local objectmonitor list - a simple cache organized as a SLL.
  public:
-  ObjectMonitor* omFreeList;
-  int omFreeCount;                              // length of omFreeList
-  int omFreeProvision;                          // reload chunk size
-  ObjectMonitor* omInUseList;                   // SLL to track monitors in circulation
-  int omInUseCount;                             // length of omInUseList
+  ObjectMonitor* omFreeList;                                                                // 空闲ObjectMonitor的链表头指针
+  int omFreeCount;                              // length of omFreeList                     // 空闲ObjectMonitor的数量
+  int omFreeProvision;                          // reload chunk size                        // 预分配ObjectMonitor的数量
+  ObjectMonitor* omInUseList;                   // SLL to track monitors in circulation     // 正在使用的ObjectMonitor的链表头指针
+  int omInUseCount;                             // length of omInUseList                    // 正在使用的ObjectMonitor的数量
 
 #ifdef ASSERT
  private:
-  bool _visited_for_critical_count;
+  bool _visited_for_critical_count;                                                         // 当前线程在调用object的hash_code函数期间是否已经加锁
 
  public:
   void set_visited_for_critical_count(bool z) { _visited_for_critical_count = z; }
@@ -386,7 +398,7 @@ class Thread: public ThreadShadow {
   // Support for Unhandled Oop detection
 #ifdef CHECK_UNHANDLED_OOPS
  private:
-  UnhandledOops* _unhandled_oops;
+  UnhandledOops* _unhandled_oops;                                           // 未处理的oop列表，用于在GC期间处理object时避免发生额外的内存分配
  public:
   UnhandledOops* unhandled_oops() { return _unhandled_oops; }
   // Mark oop safe for gc.  It may be stack allocated but won't move.
@@ -541,13 +553,13 @@ public:
 
   // Thread local handle area for allocation of handles within the VM
   HandleArea* _handle_area;                                             // 句柄对象存储区域
-  GrowableArray<Metadata*>* _metadata_handles;
+  GrowableArray<Metadata*>* _metadata_handles;                          // 存储元数据的GrowableArray指针
 
   // Support for stack overflow handling, get_thread, etc.
-  address          _stack_base;
-  size_t           _stack_size;
-  uintptr_t        _self_raw_id;      // used by get_thread (mutable)
-  int              _lgrp_id;
+  address          _stack_base;                                         // 栈底地址
+  size_t           _stack_size;                                         // 栈的大小
+  uintptr_t        _self_raw_id;      // used by get_thread (mutable)   // 当前线程的唯一标识符
+  int              _lgrp_id;                                            // 线程所属的逻辑处理组的ID号
 
  public:
   // Stack overflow support
@@ -633,13 +645,13 @@ public:
   static ByteSize allocated_bytes_offset()       { return byte_offset_of(Thread, _allocated_bytes ); }
 
  public:
-  volatile intptr_t _Stalled ;
-  volatile int _TypeTag ;
-  ParkEvent * _ParkEvent ;                     // for synchronized()
-  ParkEvent * _SleepEvent ;                    // for Thread.sleep
-  ParkEvent * _MutexEvent ;                    // for native internal Mutex/Monitor
-  ParkEvent * _MuxEvent ;                      // for low-level muxAcquire-muxRelease
-  int NativeSyncRecursion ;                    // diagnostic
+  volatile intptr_t _Stalled ;                 // 标记线程是否处于阻塞状态
+  volatile int _TypeTag ;                      // 用于标记线程是否已处理了强制类型转换
+  ParkEvent * _ParkEvent ;                     // for synchronized()                        // 线程阻塞时的事件对象
+  ParkEvent * _SleepEvent ;                    // for Thread.sleep                          // 线程休眠时的事件对象
+  ParkEvent * _MutexEvent ;                    // for native internal Mutex/Monitor         // 线程在锁等待时的事件对象
+  ParkEvent * _MuxEvent ;                      // for low-level muxAcquire-muxRelease       // 线程在等待单独对象的事件对象
+  int NativeSyncRecursion ;                    // diagnostic                                // 用于记录线程在Native同步中递归调用的次数
 
   volatile int _OnTrap ;                       // Resume-at IP delta
   jint _hashStateW ;                           // Marsaglia Shift-XOR thread-local RNG

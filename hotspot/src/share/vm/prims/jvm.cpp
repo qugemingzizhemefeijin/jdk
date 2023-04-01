@@ -348,6 +348,9 @@ JVM_ENTRY(jobject, JVM_InitProperties(JNIEnv *env, jobject properties))
   // Do this after setting user properties to prevent people
   // from setting the value with a -D option, as requested.
   {
+    // 如果没有设置 -XX:MaxDirectMemorySize 属性，则默认存储为 -1
+    // 在类 sun.misc.VM.saveAndRemoveProperties 中会根据这里设置的属性，来配置堆外内存的大小
+    // 如果为 -1 则 堆外内存 = Runtime.getRuntime().maxMemory()
     if (FLAG_IS_DEFAULT(MaxDirectMemorySize)) {
       PUTPROP(props, "sun.nio.MaxDirectMemorySize", "-1");
     } else {
