@@ -461,6 +461,8 @@ bool InstanceKlass::should_be_initialized() const {
 }
 
 klassVtable* InstanceKlass::vtable() const {
+  // start_of_vtable()函数用于获取vtable的起始地址，因为vtable存储在紧跟Klass本身占用的内存空间之后，所以可以轻易获取。
+  // vtable_length()函数用于获取Klass中_vtable_len属性的值，这个值在解析Class文件、创建Klass实例时已经计算好，这里只需要获取即可。
   return new klassVtable(this, start_of_vtable(), vtable_length() / vtableEntry::size());
 }
 
@@ -712,7 +714,9 @@ bool InstanceKlass::link_class_impl(
       // also does loader constraint checking
       if (!this_oop()->is_shared()) {
         ResourceMark rm(THREAD);
+        // 创建并初始化klassVtable
         this_oop->vtable()->initialize_vtable(true, CHECK_false);
+        // 创建并初始化klassItable
         this_oop->itable()->initialize_itable(true, CHECK_false);
       }
 #ifdef ASSERT
@@ -2571,18 +2575,23 @@ bool InstanceKlass::is_same_class_package(oop class_loader1, Symbol* class_name1
 // Assumes name-signature match
 // "this" is InstanceKlass of super_method which must exist
 // note that the InstanceKlass of the method in the targetclassname has not always been created yet
+
+// 判断方法是否是可被覆写的
 bool InstanceKlass::is_override(methodHandle super_method, Handle targetclassloader, Symbol* targetclassname, TRAPS) {
    // Private methods can not be overridden
+   // 私有方法不能被覆写
    if (super_method->is_private()) {
      return false;
    }
    // If super method is accessible, then override
+   // 父类中的public和protected方法一定可以被覆写
    if ((super_method->is_protected()) ||
        (super_method->is_public())) {
      return true;
    }
    // Package-private methods are not inherited outside of package
    assert(super_method->is_package_private(), "must be package private");
+   // default访问权限的方法必须要和目标方法处在同一个包之下
    return(is_same_class_package(targetclassloader(), targetclassname));
 }
 

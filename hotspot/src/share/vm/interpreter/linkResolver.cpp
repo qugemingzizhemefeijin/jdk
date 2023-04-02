@@ -266,11 +266,13 @@ void LinkResolver::lookup_method_in_klasses(methodHandle& result, KlassHandle kl
 void LinkResolver::lookup_instance_method_in_klasses(methodHandle& result, KlassHandle klass, Symbol* name, Symbol* signature, TRAPS) {
   Method* result_oop = klass->uncached_lookup_method(name, signature);
   result = methodHandle(THREAD, result_oop);
+  // 循环查找方法的接口实现
   while (!result.is_null() && result->is_static() && result->method_holder()->super() != NULL) {
     KlassHandle super_klass = KlassHandle(THREAD, result->method_holder()->super());
     result = methodHandle(THREAD, super_klass->uncached_lookup_method(name, signature));
   }
 
+  // 当从拥有Itable的类或父类中找到接口中方法的实现方法时，result不为NULL，否则为NULL，这时候就要查找默认的方法了。
   if (result.is_null()) {
     Array<Method*>* default_methods = InstanceKlass::cast(klass())->default_methods();
     if (default_methods != NULL) {

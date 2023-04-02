@@ -41,9 +41,32 @@
 
 class vtableEntry;
 
+// klassVtable类用来实现Java方法的多态，也可以称为动态绑定，是指在应用执行期间通过判断接收对象的实际类型，然后调用对应的方法。
+// vtable表示由一组变长（前面会有一个字段描述该表的长度）连续的vtableEntry元素构成的数组。其中，每个vtableEntry封装了一个Method实例。
+
+// vtable在Klass中的内存布局：
+// |------------------------------|
+// |        Klass本身占用的内存      |  _tableOffset
+// |          vtableEntry 1       |
+// |              ...             |  _length个vtableEntry
+// |          vtableEntry n       |
+// |             itable           |
+// |         nonstatic_oop_map    |
+// | implementor of the interface |
+// |           host klass         |
+// |------------------------------|
+
+// 在类初始化时，HotSpot VM将复制父类的vtable，然后根据自己定义的方法更新vtableEntry实例，或向vtable中添加新的vtableEntry实例。
+// 当Java方法重写父类方法时，HotSpot VM将更新vtable中的vtableEntry实例，使其指向覆盖后的实现方法；
+// 如果是方法重载或者自身新增的方法，HotSpot VM将创建新的vtableEntry实例并按顺序添加到vtable中。
+// 尚未提供实现的Java方法也会放在vtable中，由于没有实现，所以HotSpot VM没有为这个vtableEntry项分发具体的方法。
 class klassVtable : public ResourceObj {
+  // 该vtable所属的Klass，klassVtable操作的是_klass的vtable；
   KlassHandle  _klass;            // my klass
+  // vtable在Klass实例内存中的偏移量
   int          _tableOffset;      // offset of start of vtable data within klass
+  // vtable的长度，即vtableEntry的数量。因为一个vtableEntry实例只包含一个Method*，其大小等于字宽（一个指针的宽度），
+  // 所以vtable的长度跟vtable以字宽为单位的内存大小相同。
   int          _length;           // length of vtable (number of entries)
 #ifndef PRODUCT
   int          _verify_count;     // to make verify faster
@@ -73,6 +96,7 @@ class klassVtable : public ResourceObj {
   int index_of(Method* m) const                         { return index_of(m, _length); }
   int index_of_miranda(Symbol* name, Symbol* signature);
 
+  // 初始化虚函数表
   void initialize_vtable(bool checkconstraints, TRAPS);   // initialize vtable of a new klass
 
   // CDS/RedefineClasses support - clear vtables so they can be reinitialized
@@ -116,6 +140,7 @@ class klassVtable : public ResourceObj {
   void copy_vtable_to(vtableEntry* start);
   int  initialize_from_super(KlassHandle super);
   int  index_of(Method* m, int len) const; // same as index_of, but search only up to len
+  // 更新指定位置的vtable中对应的vtableEntry
   void put_method_at(Method* m, int index);
   static bool needs_new_vtable_entry(methodHandle m, Klass* super, Handle classloader, Symbol* classname, AccessFlags access_flags, TRAPS);
 
@@ -154,6 +179,7 @@ class klassVtable : public ResourceObj {
 //    destination is compiled:
 //      from_compiled_code_entry_point -> nmethod entry point
 //      from_interpreter_entry_point   -> i2cadapter
+
 class vtableEntry VALUE_OBJ_CLASS_SPEC {
   friend class VMStructs;
 
@@ -166,7 +192,7 @@ class vtableEntry VALUE_OBJ_CLASS_SPEC {
   Method* method() const    { return _method; }
 
  private:
-  Method* _method;
+  Method* _method;              // 指向Method实例的指针
   void set(Method* method)  { assert(method != NULL, "use clear"); _method = method; }
   void clear()                { _method = NULL; }
   void print()                                        PRODUCT_RETURN;
@@ -175,7 +201,7 @@ class vtableEntry VALUE_OBJ_CLASS_SPEC {
   friend class klassVtable;
 };
 
-
+// 获取索引为i处存储的方法
 inline Method* klassVtable::method_at(int i) const {
   assert(i >= 0 && i < _length, "index out of bounds");
   assert(table()[i].method() != NULL, "should not be null");
@@ -200,7 +226,9 @@ class itableMethodEntry;
 
 class itableOffsetEntry VALUE_OBJ_CLASS_SPEC {
  private:
+  // 方法所属的接口；
   Klass* _interface;
+  // 接口下的第一个方法itableMethodEntry相对于所属Klass的偏移量。
   int      _offset;
  public:
   Klass* interface_klass() const { return _interface; }
@@ -256,11 +284,18 @@ class itableMethodEntry VALUE_OBJ_CLASS_SPEC {
 //    -- vtable for interface 2 ---
 //    ...
 //
+// 增加itable而不用vtable解决所有方法分派问题，是因为一个类可以实现多个接口，而每个接口的函数编号是和其自身相关的，
+// vtable无法解决多个对应接口的函数编号问题。而一个子类只能继承一个父亲，子类只要包含父类vtable，并且和父类的函数包含部分的编号是一致的，
+// 因此可以直接使用父类的函数编号找到对应的子类实现函数。
 class klassItable : public ResourceObj {
  private:
+  // itable所属的Klass；
   instanceKlassHandle  _klass;             // my klass
+  // itable在所属Klass中的内存偏移量；
   int                  _table_offset;      // offset of start of itable data within klass (in words)
+  // itable中itableOffsetEntry的大小；
   int                  _size_offset_table; // size of offset table (in itableOffset entries)
+  // itable中itableMethodEntry的大小；
   int                  _size_method_table; // size of methodtable (in itableMethodEntry entries)
 
   void initialize_itable_for_interface(int method_table_offset, KlassHandle interf_h, bool checkconstraints, TRAPS);
@@ -275,7 +310,7 @@ class klassItable : public ResourceObj {
 
   int size_offset_table()                { return _size_offset_table; }
 
-  // Initialization
+  // Initialization // 初始化itable
   void initialize_itable(bool checkconstraints, TRAPS);
 
   // Updates
@@ -297,6 +332,7 @@ class klassItable : public ResourceObj {
   // Setup of itable
   static int assign_itable_indices_for_interface(Klass* klass);
   static int method_count_for_interface(Klass* klass);
+  // 计算itable的大小
   static int compute_itable_size(Array<Klass*>* transitive_interfaces);
   static void setup_itable_offset_table(instanceKlassHandle klass);
 
@@ -310,6 +346,7 @@ class klassItable : public ResourceObj {
   intptr_t* method_start() const { return vtable_start() + _size_offset_table * itableOffsetEntry::size(); }
 
   // Helper methods
+  // 计算itable需要占用的内存空间，其实就是接口占用的内存加上方法占用的内存之和。
   static int  calc_itable_size(int num_interfaces, int num_methods) { return (num_interfaces * itableOffsetEntry::size()) + (num_methods * itableMethodEntry::size()); }
 
   // Statistics

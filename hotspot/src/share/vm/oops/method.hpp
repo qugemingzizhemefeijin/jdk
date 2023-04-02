@@ -96,19 +96,51 @@ class ConstMethod;
 class InlineTableSizes;
 class KlassSizeStats;
 
+// 继承关系 Method -> Metadat -> MetaspaceObj
+
+// Method类没有子类，Method实例表示一个Java方法，因为一个应用有成千上万个方法，所以保证Method类在内存中的布局紧凑非常重要。
+// 为了方便回收垃圾，Method把所有的指针变量和方法都放在了Method内存布局的前面。
+
+// Java方法本身的不可变数据如字节码等用ConstMethod表示，可变数据如Profile统计的性能数据等用MethodData表示，它们都可以在Method中通过指针访问。
+
+// 如果是本地方法，Method实例的内存布局的最后是native_function和signature_handler属性，按照解释器的要求，这两个属性必须在固定的偏移处。
+
+// |-------------------------------|
+// |     Method本身占用的内存空间     |
+// |  native_function(一个指针大小)  |
+// | signature_handler(一个指针大小) |
+// |-------------------------------|
 class Method : public Metadata {
  friend class VMStructs;
  private:
+  // ConstMethod指针，定义在constMethod.hpp文件中，用于表示方法的不可变的部分，如方法ID、方法的字节码大小、方法名在常量池中的索引等
   ConstMethod*      _constMethod;                // Method read-only data.
+  // MethodData指针，在methodData.hpp中定义，用于表示一个方法在执行期间收集的相关信息，
+  // 如方法调用次数、在C1编译期间代码循环和阻塞的次数、Profile收集的方法性能相关的数据等。
+  // MethodData的结构基础是ProfileData，记录函数运行状态下的数据。
+  // MethodData分为三部分，分别是函数类型运行状态下的相关统计数据、参数类型运行状态下的相关统计数据，以及extra扩展区保存的deoptimization的相关信息。
   MethodData*       _method_data;
+  // MethodCounters指针，在methodCounters.hpp中定义，用于与大量编译、优化相关的计数，例如：
+  // 解释器调用次数；
+  // 解释执行时由于异常而终止的次数；
+  // 方法调用次数（method里面有多少方法调用）；
+  // 回边个数；
+  // Java方法运行过的分层编译的最高层级（由于HotSpot VM中存在分层编译，所以一个方法可能会被编译器编译为不同的层级，_method_counters只会记录运行过的最高层级）；
+  // 热点方法计数；
+  // 基于调用频率的热点方法的跟踪统计；
   MethodCounters*   _method_counters;
+  // AccessFlags类，表示方法的访问控制标识。jdk/src/share/javavm/export/classfile_constants.h 40行
   AccessFlags       _access_flags;               // Access flags
-  int               _vtable_index;               // vtable index of this method (see VtableIndexFlag)
+  // 当前Method实例表示的Java方法在vtable表中的索引
+  int               _vtable_index;               // vtable index of this method (see VtableIndexFlag) line: 487
                                                  // note: can have vtables with >2**16 elements (because of inheritance)
 #ifdef CC_INTERP
   int               _result_index;               // C++ interpreter needs for converting results to/from stack
 #endif
+  // 当前Method实例的大小，以字为单位
   u2                _method_size;                // size of this object
+  // 固有方法的ID。固有方法（Intrinsic Method）在HotSpot VM中表示一些众所周知的方法，针对它们可以做特别处理，生成独特的代码例程。
+  // HotSpot VM发现一个方法是固有方法时不会对字节码进行解析执行，而是跳到独特的代码例程上执行，这要比解析执行更高效。
   u1                _intrinsic_id;               // vmSymbols::intrinsic_id (0 == _none)
   u1                _jfr_towrite      : 1,       // Flags
                     _caller_sensitive : 1,
@@ -120,25 +152,39 @@ class Method : public Metadata {
 #ifndef PRODUCT
   int               _compiled_invocation_count;  // Number of nmethod invocations so far (for perf. debugging)
 #endif
+  // 以下5个属性对于Java方法的解释执行和编译执行非常重要
   // Entry point for calling both from and to the interpreter.
+  // 指向字节码解释执行的入口
   address _i2i_entry;           // All-args-on-stack calling convention
   // Adapter blob (i2c/c2i) for this Method*. Set once when method is linked.
+  // 指向该Java方法的签名（signature）所对应的i2c/c2i adapter stub。
+  // 当需要c2i adapter stub或i2c adapter stub的时候，调用_adapter的get_i2c_entry()或get_c2i_entry()函数获取。
   AdapterHandlerEntry* _adapter;
   // Entry point for calling from compiled code, to compiled code if it exists
   // or else the interpreter.
+  // _from_compiled_entry的初始值指向c2i adapter stub，也就是以编译模式执行的Java方法在调用需要以解释模式执行的Java方法时，
+  // 由于调用约定不同，所以需要在转换时进行适配，而_from_compiled_entry指向这个适配的例程入口。
+  // 一开始Java方法没有被JIT编译，需要在解释模式下执行。当该方法被JIT编译并“安装”完成之后，_from_compiled_entry会指向编译出来的机器码入口，
+  // 具体说是指向verified entry point。如果要抛弃之前编译好的机器码，那么_from_compiled_entry会恢复为指向c2i adapter stub。
   volatile address _from_compiled_entry;        // Cache of: _code ? _code->entry_point() : _adapter->c2i_entry()
   // The entry point for calling both from and to compiled code is
   // "_code->entry_point()".  Because of tiered compilation and de-opt, this
   // field can come and go.  It can transition from NULL to not-null at any
   // time (whenever a compile completes).  It can transition from not-null to
   // NULL only at safepoints (because of a de-opt).
+  // 当一个方法被JIT编译后会生成一个nmethod，code指向的是编译后的代码。
   nmethod* volatile _code;                       // Points to the corresponding piece of native code
+  // _from_interpreted_entry的初始值与_i2i_entry一样，都是指向字节码解释执行的入口。但当该Java方法被JIT编译并“安装”之后，
+  // _from_interpreted_entry就会被设置为指向i2c adapter stub。如果因为某些原因需要抛弃之前已经编译并安装好的机器码，
+  // 则_from_interpreted_entry会恢复为指向_i2i_entry。如果有_code，则通过_from_interpreted_entry转向编译方法，
+  // 否则通过_i2i_entry转向解释方法。
   volatile address           _from_interpreted_entry; // Cache of _code ? _adapter->i2c_entry() : _i2i_entry
 
   // Constructor
   Method(ConstMethod* xconst, AccessFlags access_flags, int size);
  public:
 
+  // 分配内存并创建Method对象
   static Method* allocate(ClassLoaderData* loader_data,
                           int byte_code_size,
                           AccessFlags access_flags,
@@ -448,11 +494,11 @@ class Method : public Metadata {
   enum VtableIndexFlag {
     // Valid vtable indexes are non-negative (>= 0).
     // These few negative values are used as sentinels.
-    itable_index_max        = -10, // first itable index, growing downward
-    pending_itable_index    = -9,  // itable index will be assigned
-    invalid_vtable_index    = -4,  // distinct from any valid vtable index
-    garbage_vtable_index    = -3,  // not yet linked; no vtable layout yet
-    nonvirtual_vtable_index = -2   // there is no need for vtable dispatch
+    itable_index_max        = -10, // first itable index, growing downward      // 首个itable索引
+    pending_itable_index    = -9,  // itable index will be assigned             // itable将会被赋值
+    invalid_vtable_index    = -4,  // distinct from any valid vtable index      // 无效的虚表index
+    garbage_vtable_index    = -3,  // not yet linked; no vtable layout yet      // 还没有初始化vtable的方法，无用值
+    nonvirtual_vtable_index = -2   // there is no need for vtable dispatch      // 不需要虚函数派发，比如调用静态方法
     // 6330203 Note:  Do not use -1, which was overloaded with many meanings.
   };
   DEBUG_ONLY(bool valid_vtable_index() const     { return _vtable_index >= nonvirtual_vtable_index; })

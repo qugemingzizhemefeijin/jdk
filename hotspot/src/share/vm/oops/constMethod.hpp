@@ -174,7 +174,24 @@ class InlineTableSizes : StackObj {
 #undef INLINE_TABLE_PARAM
 #undef INLINE_TABLE_DECLARE
 
+// ConstMethod实例用于保存方法中不可变部分的信息，如方法的字节码和方法参数的大小等。
 
+// 通过_constants和_method_idnum这两个参数可以找到对应的Method实例，因为Method有ConstMethod指针，但ConstMethod没有Method指针，
+// 需要通过以下步骤查找：
+// ConstantPool → InstanceKlass → Method数组， 通过_method_idnum获取对应的Method实例的指针。
+
+// ConstMethod实例的内存布局：
+// |---------------------------|
+// | ConstMethod本身占用的内存空间 |
+// |        方法的字节码          |
+// |      压缩的代码行号表         |
+// |        本地变量表            |
+// |          异常表             |
+// |         异常检查表           |
+// |         方法参数            |
+// |         方法签名            |
+// |         方法注解            |
+// |----------------------------|
 class ConstMethod : public MetaspaceObj {
   friend class VMStructs;
 
@@ -203,24 +220,32 @@ private:
   // loads and stores.  This value may updated and read without a lock by
   // multiple threads, so is volatile.
   volatile uint64_t _fingerprint;
-
+  // 保存对常量池的引用
   ConstantPool*     _constants;                  // Constant pool
 
   // Raw stackmap data for the method
   Array<u1>*        _stackmap_data;
-
+  // ConstMethod实例的大小，通过调用ConstMethod::size()函数获取
   int               _constMethod_size;
+  // 访问标识符
   u2                _flags;
 
   // Size of Java bytecodes allocated immediately after Method*.
+  // 方法的字节码所占用的内存大小，以字节位单位
   u2                _code_size;
+  // 方法名称在常量池中的索引
   u2                _name_index;                 // Method name (index in constant pool)
+  // 方法签名在常量池中的索引
   u2                _signature_index;            // Method signature (index in constant pool)
+  // 对于方法来说，这是唯一ID，这个ID的值通常是methods数据的下标索引
   u2                _method_idnum;               // unique identification number for the method within the class
                                                  // initially corresponds to the index into the methods array.
                                                  // but this may change with redefinition
+  // 栈的最大深度
   u2                _max_stack;                  // Maximum number of entries on the expression stack
+  // 本地变量表的最大深度
   u2                _max_locals;                 // Number of local variables used by this method
+  // 方法参数的大小，以字为单位
   u2                _size_of_parameters;         // size of the parameter block (receiver + arguments) in words
 
   // Constructor
@@ -230,6 +255,7 @@ private:
               int size);
 public:
 
+  // 申请内存并创建ConstMethod对象
   static ConstMethod* allocate(ClassLoaderData* loader_data,
                                int byte_code_size,
                                InlineTableSizes* sizes,
@@ -250,6 +276,7 @@ public:
   bool has_checked_exceptions() const
     { return (_flags & _has_checked_exceptions) != 0; }
 
+  // 是否存在本地变量表
   bool has_localvariable_table() const
     { return (_flags & _has_localvariable_table) != 0; }
 
@@ -446,11 +473,12 @@ public:
 
   // byte codes
   void    set_code(address code) {
+    // 当字节码的大小不为0时，调用memcpy()函数将字节码内容存储在紧挨着ConstMethod本身占用的内存空间之后。
     if (code_size() > 0) {
       memcpy(code_base(), code, code_size());
     }
   }
-  address code_base() const            { return (address) (this+1); }
+  address code_base() const            { return (address) (this+1); } // 存储在ConstMethod本身占用的内存之后
   address code_end() const             { return code_base() + code_size(); }
   bool    contains(address bcp) const  { return code_base() <= bcp
                                                      && bcp < code_end(); }

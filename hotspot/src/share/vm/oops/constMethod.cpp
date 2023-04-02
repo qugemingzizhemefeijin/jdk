@@ -39,6 +39,7 @@ ConstMethod* ConstMethod::allocate(ClassLoaderData* loader_data,
                                    InlineTableSizes* sizes,
                                    MethodType method_type,
                                    TRAPS) {
+  // 方法的属性是不可变部分，会存储到ConstMethod实例中，因此在调用ConstMethod::size()函数时需要传递字节码大小byte_code_size与其他属性的sizes
   int size = ConstMethod::size(byte_code_size, sizes);
   return new (loader_data, size, true, MetaspaceObj::ConstMethodType, THREAD) ConstMethod(
       byte_code_size, sizes, method_type, size);
@@ -140,6 +141,7 @@ int ConstMethod::size(int code_size,
 
   int extra_words = align_size_up(extra_bytes, BytesPerWord) / BytesPerWord;
   assert(extra_words == extra_bytes/BytesPerWord, "should already be aligned");
+  // 调用header_size()函数获取ConstMethod本身需要占用的内存空间，然后加上extra_words就是需要开辟的内存空间，单位为字。
   return align_object_size(header_size() + extra_words);
 }
 

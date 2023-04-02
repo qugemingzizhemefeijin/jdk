@@ -247,7 +247,7 @@ class ClassFileParser VALUE_OBJ_CLASS_SPEC {
                           int instance_fields_end,
                           int static_fields_end);
 
-  // Method parsing
+  // Method parsing 解析方法
   methodHandle parse_method(bool is_interface,
                             AccessFlags* promoted_flags,
                             TRAPS);

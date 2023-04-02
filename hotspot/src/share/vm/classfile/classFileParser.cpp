@@ -2011,6 +2011,7 @@ void ClassFileParser::copy_method_annotations(ConstMethod* cm,
 // from the method back up to the containing klass. These flag values
 // are added to klass's access_flags.
 
+// 解析每一个方法
 methodHandle ClassFileParser::parse_method(bool is_interface,
                                            AccessFlags *promoted_flags,
                                            TRAPS) {
@@ -2020,8 +2021,8 @@ methodHandle ClassFileParser::parse_method(bool is_interface,
   // Parse fixed parts
   cfs->guarantee_more(8, CHECK_(nullHandle)); // access_flags, name_index, descriptor_index, attributes_count
 
-  int flags = cfs->get_u2_fast();
-  u2 name_index = cfs->get_u2_fast();
+  int flags = cfs->get_u2_fast();               // 读取access_flags属性值
+  u2 name_index = cfs->get_u2_fast();           // 读取name_index属性值
   int cp_size = _cp->length();
   check_property(
     valid_symbol_at(name_index),
@@ -2030,7 +2031,7 @@ methodHandle ClassFileParser::parse_method(bool is_interface,
   Symbol*  name = _cp->symbol_at(name_index);
   verify_legal_method_name(name, CHECK_(nullHandle));
 
-  u2 signature_index = cfs->get_u2_fast();
+  u2 signature_index = cfs->get_u2_fast();      // 读取descriptor_index属性值
   guarantee_property(
     valid_symbol_at(signature_index),
     "Illegal constant pool index %u for method signature in class file %s",
@@ -2111,7 +2112,8 @@ methodHandle ClassFileParser::parse_method(bool is_interface,
   int annotation_default_length = 0;
 
   // Parse code and exceptions attribute
-  u2 method_attributes_count = cfs->get_u2_fast();
+  u2 method_attributes_count = cfs->get_u2_fast();      // 读取attributes_count属性
+  // 循环读取多个属性
   while (method_attributes_count--) {
     cfs->guarantee_more(6, CHECK_(nullHandle));  // method_attribute_name_index, method_attribute_length
     u2 method_attribute_name_index = cfs->get_u2_fast();
@@ -2122,6 +2124,7 @@ methodHandle ClassFileParser::parse_method(bool is_interface,
       method_attribute_name_index, CHECK_(nullHandle));
 
     Symbol* method_attribute_name = _cp->symbol_at(method_attribute_name_index);
+    // 解析Code属性
     if (method_attribute_name == vmSymbols::tag_code()) {
       // Parse Code attribute
       if (_need_verify) {
@@ -2136,6 +2139,7 @@ methodHandle ClassFileParser::parse_method(bool is_interface,
       parsed_code_attribute = true;
 
       // Stack size, locals size, and code size
+      // 读取max_stack、max_locals和code_length属性
       if (_major_version == 45 && _minor_version <= 2) {
         cfs->guarantee_more(4, CHECK_(nullHandle));
         max_stack = cfs->get_u1_fast();
@@ -2155,13 +2159,16 @@ methodHandle ClassFileParser::parse_method(bool is_interface,
                            code_length, CHECK_(nullHandle));
       }
       // Code pointer
+      // 读取code[code_length]数组的首地址
       code_start = cfs->get_u1_buffer();
       assert(code_start != NULL, "null code start");
       cfs->guarantee_more(code_length, CHECK_(nullHandle));
+      // 跳过code_length个u1类型的数据，也就是跳过整个code[code_length]数组
       cfs->skip_u1_fast(code_length);
 
       // Exception handler table
       cfs->guarantee_more(2, CHECK_(nullHandle));  // exception_table_length
+      // 读取exception_table_length属性并处理exception_table[exception_table_length]
       exception_table_length = cfs->get_u2_fast();
       if (exception_table_length > 0) {
         exception_table_start =
@@ -2170,6 +2177,7 @@ methodHandle ClassFileParser::parse_method(bool is_interface,
 
       // Parse additional attributes in code attribute
       cfs->guarantee_more(2, CHECK_(nullHandle));  // code_attributes_count
+      // 读取attributes_count属性并处理attribute_info_attributes[attributes_count]数组
       u2 code_attributes_count = cfs->get_u2_fast();
 
       unsigned int calculated_attribute_length = 0;
@@ -2408,6 +2416,8 @@ methodHandle ClassFileParser::parse_method(bool is_interface,
                       "Absent Code attribute in method that is not native or abstract in class file %s", CHECK_(nullHandle));
   }
 
+  // 创建Method与ConstMethod实例保存这些属性信息
+
   // All sizing information for a Method* is finally available, now create it
   InlineTableSizes sizes(
       total_lvt_length,
@@ -2424,7 +2434,7 @@ methodHandle ClassFileParser::parse_method(bool is_interface,
            runtime_invisible_type_annotations_length,
       annotation_default_length,
       0);
-
+  // 分配内存，创建Method对象
   Method* m = Method::allocate(
       _loader_data, code_length, access_flags, &sizes,
       ConstMethod::NORMAL, CHECK_(nullHandle));
@@ -2554,6 +2564,9 @@ methodHandle ClassFileParser::parse_method(bool is_interface,
 // from the methods back up to the containing klass. These flag values
 // are added to klass's access_flags.
 
+// 解析类中的方法
+// has_final_method与has_default_methods属性的值最终会保存到表示方法所属类的InstanceKlass实例的_misc_flags和_access_flags属性中，
+// 供其他地方使用。
 Array<Method*>* ClassFileParser::parse_methods(bool is_interface,
                                                AccessFlags* promoted_flags,
                                                bool* has_final_method,
@@ -2569,19 +2582,24 @@ Array<Method*>* ClassFileParser::parse_methods(bool is_interface,
 
     HandleMark hm(THREAD);
     for (int index = 0; index < length; index++) {
+      // 调用parse_method()函数解析每个Java方法
+      // Method实例需要通过methodHandle句柄来操作，因此最终会封装为methodHandle句柄，然后存储到_methods数组中。
       methodHandle method = parse_method(is_interface,
                                          promoted_flags,
                                          CHECK_NULL);
 
       if (method->is_final()) {
+        // 如果定义了final方法，那么has_final_method变量的值为true
         *has_final_method = true;
       }
       if (is_interface && !(*has_default_methods)
         && !method->is_abstract() && !method->is_static()
         && !method->is_private()) {
         // default method
+        // 如果定义了默认的方法，则has_default_methods变量的值为true
         *has_default_methods = true;
       }
+      // 将方法存入_methods数组中
       _methods->at_put(index, method());
     }
 
@@ -4043,12 +4061,15 @@ instanceKlassHandle ClassFileParser::parseClassFile(Symbol* name,
 
     GrowableArray<Method*> all_mirandas(20);
 
+    // 计算虚函数表的大小和mirandas方法的数量
+    // methods就是调用parse_methods()函数后的返回值，数组中存储了类或接口中定义或声明的所有方法，不包括父类和实现的接口中的任何方法。
     klassVtable::compute_vtable_size_and_num_mirandas(
         &vtable_size, &num_miranda_methods, &all_mirandas, super_klass(), methods,
         access_flags, class_loader, class_name, local_interfaces,
                                                       CHECK_(nullHandle));
 
     // Size of Java itable (in words)
+    // 当为接口时，itable_size的值为0。接口不需要itable，只有类才有itable。
     itable_size = access_flags.is_interface() ? 0 : klassItable::compute_itable_size(_transitive_interfaces);
 
     FieldLayoutInfo info;
@@ -4161,6 +4182,7 @@ instanceKlassHandle ClassFileParser::parseClassFile(Symbol* name,
     this_klass->initialize_supers(super_klass(), CHECK_(nullHandle));
 
     // Initialize itable offset tables
+    // 初始化itable表
     klassItable::setup_itable_offset_table(this_klass);
 
     // Compute transitive closure of interfaces this class implements

@@ -66,21 +66,25 @@ Method* Method::allocate(ClassLoaderData* loader_data,
                          TRAPS) {
   assert(!access_flags.is_native() || byte_code_size == 0,
          "native methods should not contain byte codes");
+  // 为ConstMethod在元数据区Metaspace分配内存并创建ConstMethod实例
   ConstMethod* cm = ConstMethod::allocate(loader_data,
                                           byte_code_size,
                                           sizes,
                                           method_type,
                                           CHECK_NULL);
-
+  // 为Method在元数据区Metaspace分配内存并创建Method实例，此实例中保存有对ConstMethod实例的引用。
   int size = Method::size(access_flags.is_native());
 
   return new (loader_data, size, false, MetaspaceObj::MethodType, THREAD) Method(cm, access_flags, size);
 }
 
+// 构造函数初始化属性
 Method::Method(ConstMethod* xconst, AccessFlags access_flags, int size) {
   No_Safepoint_Verifier no_safepoint;
+  // 保存对ConstMethod实例的引用
   set_constMethod(xconst);
   set_access_flags(access_flags);
+  // 保存Method实例的大小
   set_method_size(size);
 #ifdef CC_INTERP
   set_result_index(T_VOID);
@@ -92,6 +96,7 @@ Method::Method(ConstMethod* xconst, AccessFlags access_flags, int size) {
   set_dont_inline(false);
   set_method_data(NULL);
   set_method_counters(NULL);
+  // 表示vtable，设置为 Method::garbage_vtable_index 表示vtable还不可用
   set_vtable_index(Method::garbage_vtable_index);
 
   // Fix and bury in Method*
@@ -279,9 +284,10 @@ address Method::bcp_from(int bci) const {
   return bcp;
 }
 
-
+// 计算Method实例所需要分配的内存空间
 int Method::size(bool is_native) {
   // If native, then include pointers for native_function and signature_handler
+  // 如果是本地方法，还需要为本地方法开辟保存native_function和signature_handler属性值的内存空间
   int extra_bytes = (is_native) ? 2*sizeof(address*) : 0;
   int extra_words = align_size_up(extra_bytes, BytesPerWord) / BytesPerWord;
   return align_object_size(header_size() + extra_words);
