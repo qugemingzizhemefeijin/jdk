@@ -2817,19 +2817,22 @@ void jio_print(const char* s) {
 // instance), and are very unlikely.  Because IsAlive needs to be fast and its
 // implementation is local to this file, we always lock Threads_lock for that one.
 
+// 此方法为调用Java层Thread类的run方法
 static void thread_entry(JavaThread* thread, TRAPS) {
   HandleMark hm(THREAD);
   Handle obj(THREAD, thread->threadObj());
   JavaValue result(T_VOID);
+  // JavaCalls模块是用来调用Java方法的
+  // 这里其实就是开始调用Java线程对象的run()方法
   JavaCalls::call_virtual(&result,
-                          obj,
-                          KlassHandle(THREAD, SystemDictionary::Thread_klass()),
-                          vmSymbols::run_method_name(),
-                          vmSymbols::void_method_signature(),
+                          obj, // Thread对象
+                          KlassHandle(THREAD, SystemDictionary::Thread_klass()), // Java_java_lang_Thread
+                          vmSymbols::run_method_name(), // run()
+                          vmSymbols::void_method_signature(),// V
                           THREAD);
 }
 
-
+// JVM_StartThread方法主要是通过Java语言层的Thread对象中传递的信息，创建了JavaThread这个JVM线程对象
 JVM_ENTRY(void, JVM_StartThread(JNIEnv* env, jobject jthread))
   JVMWrapper("JVM_StartThread");
   JavaThread *native_thread = NULL;
@@ -2837,6 +2840,8 @@ JVM_ENTRY(void, JVM_StartThread(JNIEnv* env, jobject jthread))
   // We cannot hold the Threads_lock when we throw an exception,
   // due to rank ordering issues. Example:  we might need to grab the
   // Heap_lock while we construct the exception.
+
+  // 通过bool量表示是否有异常，因为下面持有 Threads_lock 锁时，抛出异常会导致锁不能被释放
   bool throw_illegal_thread_state = false;
 
   // We must release the Threads_lock before we can post a jvmti event
@@ -2844,6 +2849,7 @@ JVM_ENTRY(void, JVM_StartThread(JNIEnv* env, jobject jthread))
   {
     // Ensure that the C++ Thread and OSThread structures aren't freed before
     // we operate.
+    // 获取 Threads_lock 这个JVM内部的 Mutex锁
     MutexLocker mu(Threads_lock);
 
     // Since JDK 5 the java.lang.Thread threadStatus is used to prevent
@@ -2852,12 +2858,16 @@ JVM_ENTRY(void, JVM_StartThread(JNIEnv* env, jobject jthread))
     // there is a small window between the Thread object being created
     // (with its JavaThread set) and the update to its threadStatus, so we
     // have to check for this
+    // 如果线程已经创建成功，则不可以重复创建
+    // PS: 不可以通过Thread状态机判断，因为创建线程成功与修改线程状态这两个操作是非原子的，存在窗口期
     if (java_lang_Thread::thread(JNIHandles::resolve_non_null(jthread)) != NULL) {
       throw_illegal_thread_state = true;
     } else {
       // We could also check the stillborn flag to see if this thread was already stopped, but
       // for historical reasons we let the thread detect that itself when it starts running
 
+      // 获取Thread中定义的栈大小，一般我们创建Thread对象时不会显式指定传入stackSize对象
+      // 指定时，后面在创建栈时会使用 -Xss 这个JVM参数指定的栈大小
       jlong size =
              java_lang_Thread::stackSize(JNIHandles::resolve_non_null(jthread));
       // Allocate the C++ Thread structure and create the native thread.  The
@@ -2865,6 +2875,8 @@ JVM_ENTRY(void, JVM_StartThread(JNIEnv* env, jobject jthread))
       // size_t (an unsigned type), so avoid passing negative values which would
       // result in really large stacks.
       size_t sz = size > 0 ? (size_t) size : 0;
+      // 创建JVM线程(用JavaThread对象表示)
+      // thread_entry 为 Thread::run
       native_thread = new JavaThread(&thread_entry, sz);
 
       // At this point it may be possible that no osthread was created for the

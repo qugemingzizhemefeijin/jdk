@@ -1555,6 +1555,9 @@ void JavaThread::block_if_vm_exited() {
 // Remove this ifdef when C1 is ported to the compiler interface.
 static void compiler_thread_entry(JavaThread* thread, TRAPS);
 
+// 创建 JavaThread 对象
+// @param entry_point   Java层Thread对象的run方法
+// @param stack_sz      分配的栈大小
 JavaThread::JavaThread(ThreadFunction entry_point, size_t stack_sz) :
   Thread()
 #if INCLUDE_ALL_GCS
@@ -1567,12 +1570,15 @@ JavaThread::JavaThread(ThreadFunction entry_point, size_t stack_sz) :
   }
   initialize();
   _jni_attach_state = _not_attaching_via_jni;
+  // entry_point 线程创建成功后的入口代码 (这里是Java语言层面传入的 Thread.run()方法)
   set_entry_point(entry_point);
   // Create the native thread itself.
   // %note runtime_23
+  // 创建的Thread类型为javaThread
   os::ThreadType thr_type = os::java_thread;
   thr_type = entry_point == &compiler_thread_entry ? os::compiler_thread :
                                                      os::java_thread;
+  // 调用不同操作系统的创建线程方法创建线程
   os::create_thread(this, thr_type, stack_sz);
   _safepoint_visible = false;
   // The _osthread may be NULL here because we ran out of memory (too many threads active).
@@ -1634,11 +1640,14 @@ JavaThread::~JavaThread() {
 
 
 // The first routine called by a new Java thread
+// 新创建出来的线程首先会先用此方法 hotspot/src/os/linux/vm/os_linux.cpp 863行
 void JavaThread::run() {
   // initialize thread-local alloc buffer related fields
+  // 初始化TLAB 线程缓冲区(-XX:+UseTLAB)
   this->initialize_tlab();
 
   // used to test validitity of stack trace backs
+  // 设置栈、确定栈的生长方向
   this->record_base_of_stack_pointer();
 
   // Record real stack base and size.
@@ -1676,6 +1685,7 @@ void JavaThread::run() {
 
   // We call another function to do the rest so we are sure that the stack addresses used
   // from there will be lower than the stack base just computed
+  // 执行线程的run方法
   thread_main_inner();
 
   // Note, thread is no longer valid at this point!
@@ -1696,11 +1706,12 @@ void JavaThread::thread_main_inner() {
       this->set_native_thread_name(this->get_thread_name());
     }
     HandleMark hm(this);
+    // 执行Java类的run方法
     this->entry_point()(this, this);
   }
 
   DTRACE_THREAD_PROBE(stop, this);
-
+  // 退出
   this->exit(false);
   delete this;
 }

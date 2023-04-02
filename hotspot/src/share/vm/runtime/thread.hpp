@@ -852,7 +852,7 @@ class JavaThread: public Thread {
 
   JavaFrameAnchor _anchor;                       // Encapsulation of current java frame and it state // JavaThread的锚点，用于插入到全局线程列表中
 
-  ThreadFunction _entry_point;
+  ThreadFunction _entry_point;                   // Java层的run方法函数句柄
 
   JNIEnv        _jni_environment;
 

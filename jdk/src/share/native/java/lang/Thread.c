@@ -40,6 +40,7 @@
 
 #define ARRAY_LENGTH(a) (sizeof(a)/sizeof(a[0]))
 
+// 映射表 eg. 调用start0时 会通过该映射表映射到 JVM_StartThread 这个JVM方法中
 static JNINativeMethod methods[] = {
     {"start0",           "()V",        (void *)&JVM_StartThread},
     {"stop0",            "(" OBJ ")V", (void *)&JVM_StopThread},
@@ -67,5 +68,6 @@ static JNINativeMethod methods[] = {
 JNIEXPORT void JNICALL
 Java_java_lang_Thread_registerNatives(JNIEnv *env, jclass cls)
 {
+    // methods即为映射表数组
     (*env)->RegisterNatives(env, cls, methods, ARRAY_LENGTH(methods));
 }

@@ -803,6 +803,7 @@ static bool _thread_safety_check(Thread* thread) {
 }
 
 // Thread start routine for all newly created threads
+// OS内核级线程的初始化，并开始运行JavaThread
 static void *java_start(Thread *thread) {
   // Try to randomize the cache line index of hot stack frames.
   // This helps when threads of the same stack traces evict each other's
@@ -828,6 +829,7 @@ static void *java_start(Thread *thread) {
   }
 
   // thread_id is kernel thread id (similar to Solaris LWP id)
+  // 此时运行的是通过glibc创建的linux核心级线程，所以当前的线程id为linux线程的id
   osthread->set_thread_id(os::Linux::gettid());
 
   if (UseNUMA) {
@@ -847,6 +849,7 @@ static void *java_start(Thread *thread) {
     MutexLockerEx ml(sync, Mutex::_no_safepoint_check_flag);
 
     // notify parent thread
+    // OS核心级线程初始化完毕
     osthread->set_state(INITIALIZED);
     sync->notify_all();
 
@@ -857,15 +860,18 @@ static void *java_start(Thread *thread) {
   }
 
   // call one more level start routine
+  // 初始化完成JVM对应的操作系统线程后，开始运行JavaThread::run。
   thread->run();
 
   return 0;
 }
 
+// JVM为每一种操作系统(linux、bsd...)都写了对应的创建线程的OS方法
 bool os::create_thread(Thread* thread, ThreadType thr_type, size_t stack_size) {
   assert(thread->osthread() == NULL, "caller responsible");
 
   // Allocate the OSThread object
+  // 操作系统线程对象
   OSThread* osthread = new OSThread(NULL, NULL);
   if (osthread == NULL) {
     return false;
@@ -877,6 +883,7 @@ bool os::create_thread(Thread* thread, ThreadType thr_type, size_t stack_size) {
   // Initial state is ALLOCATED but not INITIALIZED
   osthread->set_state(ALLOCATED);
 
+  // 将JavaThread(JVM)层线程对象与操作系统内核级线程关联起来，这样就可以通过使用JavaThread操作内核级线程 (一对一的关系)
   thread->set_osthread(osthread);
 
   // init thread attributes
@@ -931,6 +938,7 @@ bool os::create_thread(Thread* thread, ThreadType thr_type, size_t stack_size) {
     }
 
     pthread_t tid;
+    // 通过pthread_create方法创建内核级线程
     int ret = pthread_create(&tid, &attr, (void* (*)(void*)) java_start, thread);
 
     pthread_attr_destroy(&attr);
@@ -947,6 +955,7 @@ bool os::create_thread(Thread* thread, ThreadType thr_type, size_t stack_size) {
     }
 
     // Store pthread info into the OSThread
+    // 设置当前线程的ID，操作系统 tid (轻量级进程Id)
     osthread->set_pthread_id(tid);
 
     // Wait until child thread is either initialized or aborted
