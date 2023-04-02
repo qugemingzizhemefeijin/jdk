@@ -233,6 +233,7 @@ class ClassFileParser VALUE_OBJ_CLASS_SPEC {
                               u2* generic_signature_index_addr,
                               FieldAnnotationCollector* parsed_annotations,
                               TRAPS);
+  // 字段解析
   Array<u2>* parse_fields(Symbol* class_name,
                           bool is_interface,
                           FieldAllocationCount *fac,
@@ -299,6 +300,7 @@ class ClassFileParser VALUE_OBJ_CLASS_SPEC {
                          TRAPS);
 
   // Final setup
+  // 计算当前InstanceKlass实例需要的OopMapBlock数量
   unsigned int compute_oop_map_count(instanceKlassHandle super,
                                      unsigned int nonstatic_oop_count,
                                      int first_nonstatic_oop_offset);

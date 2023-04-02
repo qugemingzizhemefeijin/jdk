@@ -68,7 +68,7 @@ int JavaClasses::compute_injected_offset(InjectedFieldID id) {
 
 InjectedField* JavaClasses::get_injected(Symbol* class_name, int* field_count) {
   *field_count = 0;
-
+  // 如果是用户自定义的类，不进行字段注入，直接返回即可
   vmSymbols::SID sid = vmSymbols::find_sid(class_name);
   if (sid == vmSymbols::NO_SID) {
     // Only well known classes can inject fields
@@ -3509,6 +3509,7 @@ int InjectedField::compute_offset() {
   for (AllFieldStream fs(InstanceKlass::cast(klass_oop)); !fs.done(); fs.next()) {
     if (!may_be_java && !fs.access_flags().is_internal()) {
       // Only look at injected fields
+      // 只查看注入的字段
       continue;
     }
     if (fs.name() == name() && fs.signature() == signature()) {

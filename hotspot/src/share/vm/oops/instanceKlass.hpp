@@ -112,6 +112,76 @@ class FieldPrinter: public FieldClosure {
 
 // ValueObjs embedded in klass. Describes where oops are located in instances of
 // this klass.
+
+// 垃圾收集器可以根据存储在InstanceKlass实例中的OopMapBlock，查找oop实例中哪些部分包含的是对其他oop实例的引用，
+// 也就是Java对象对其他Java对象的引用，这样垃圾收集器GC就可以递归遍历标记这些对象，将活跃对象识别出来了。
+
+// 一个InstanceKlass实例中可能含有多个OopMapBlock实例，因为每个OopMapBlock实例只能描述当前子类中包含的对象类型属性，
+// 父类的对象类型属性由单独的OopMap-Block描述。
+
+// 生成OopMapBlock的过程中调用的函数比较多，处理逻辑比较分散。
+// 1.ClassFileParser::parse_fields()：获取对象类型字段信息；
+// 2.ClassFileParser:layout_fields()：布局对象类型的字段并将相关信息保存到FieldLayoutInfo中；
+// 3.ClassFileParser::compute_oop_map_count()：计算当前类中需要的OopMapBlock数量；
+// 4.InstanceKlass::nonstatic_oop_map_size()和InstanceKlass::allocate_instance_klass()：为OopMapBlock开辟存储空间；
+// 5.ClassFileParser::fill_oop_maps()：向OopMapBlock中填充信息；
+
+/**
+ * class ClassA {
+ *    private int a1 = 1;
+ *    private String a2 = "深入解析Java编译器";
+ *    private Integer a3 = 12;
+ *    private int a4 = 22;
+ * }
+ * class ClassB extends ClassA {
+ *    private int b1 = 3;
+ *    private String b2 = "深入剖析Java虚拟机";
+ *    private int b3 = 33;
+ *    private ClassA b4 = new ClassA();
+ * }
+ * public class TestOopMapBlock {
+ *    public static void main(String[] args) {
+ *        ClassA x1 = new ClassA();
+ *        ClassB x2 = new ClassB();
+ *    }
+ * }
+*/
+
+// ClassA和ClassB分别声明了两个对象类型的变量，因此表示这两个类的InstanceKlass实例都含有OopMapBlock结构。
+// ClassB的相关信息如下：
+// - ---- static fields (0 words):
+// - ---- non-static fields (8 words):
+// - private 'a1' 'I' @16
+// - private 'a4' 'I' @20
+// - private 'a2' 'Ljava/lang/String;' @24
+// - private 'a3' 'Ljava/lang/Integer;' @28
+// - private 'b1' 'I' @32
+// - private 'b3' 'I' @36
+// - private 'b2' 'Ljava/lang/String;' @40
+// - private 'b4' 'Lcom/classloading/ClassA;' @44
+// - non-static oop maps: 2 24-28 (2)40-44 (2)
+// 子类完全复制了父类的字段，并且会完整保留父类的字段，以实现Java继承的特性。
+
+// allocation_style的值默认为1，也就是字段排列顺序为long/double、int、short/char、byte、oop，
+// 这样父类和子类的对象类型字段连接在一起的可能性不大，除非子类中只声明了对象类型字段。
+
+// 当allocation_style的值为2时，首先会布局oop，这样父类和子类的对象类型字段就会挨在一起，
+// 可通过父类的最后一个OopMapBlock来表示这一片连续的存储区域，方便垃圾回收一次性扫描出更多的被引用对象。
+
+// 配置命令可以更改对象的内存布局，-XX:FieldsAllocationStyle=2
+// - ---- static fields (0 words):
+// - ---- non-static fields (8 words):
+// - private 'a1' 'I' @16
+// - private 'a4' 'I' @20
+// - private 'a2' 'Ljava/lang/String;' @24
+// - private 'a3' 'Ljava/lang/Integer;' @28
+// - private 'b2' 'Ljava/lang/String;' @32
+// - private 'b4' 'Lcom/classloading/ClassA;' @36
+// - private 'b1' 'I' @40
+// - private 'b3' 'I' @44
+// - non-static oop maps: 1 24-36 (4)
+// 由于子类和父类的对象类型字段挨在一起，所以子类和父类可以共用一个OopMapBlock，偏移量范围从24到36中共有4个对象类型字段。
+
 class OopMapBlock VALUE_OBJ_CLASS_SPEC {
  public:
   // Byte offset of the first oop mapped by this block.
@@ -123,14 +193,15 @@ class OopMapBlock VALUE_OBJ_CLASS_SPEC {
   void set_count(uint count) { _count = count; }
 
   // sizeof(OopMapBlock) in HeapWords.
+  // 计算OopMapBlock本身占用的内存空间，在64位系统中为一个字
   static const int size_in_words() {
     return align_size_up(int(sizeof(OopMapBlock)), HeapWordSize) >>
       LogHeapWordSize;
   }
 
  private:
-  int  _offset;
-  uint _count;
+  int  _offset; // 表示第一个所引用的oop相对于当前oop地址的偏移量
+  uint _count;  // 有count个连续存放的oop
 };
 
 struct JvmtiCachedClassFileData;

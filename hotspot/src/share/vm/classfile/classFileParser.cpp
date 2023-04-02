@@ -1005,11 +1005,11 @@ void ClassFileParser::parse_field_attributes(u2 attributes_count,
 // Field allocation types. Used for computing field offsets.
 
 enum FieldAllocationType {
-  STATIC_OOP,           // Oops
-  STATIC_BYTE,          // Boolean, Byte, char
-  STATIC_SHORT,         // shorts
-  STATIC_WORD,          // ints
-  STATIC_DOUBLE,        // aligned long or double
+  STATIC_OOP,           // Oops                     // 引用类型
+  STATIC_BYTE,          // Boolean, Byte, char      // 字节类型
+  STATIC_SHORT,         // shorts                   // 短整型
+  STATIC_WORD,          // ints                     // 双字类型
+  STATIC_DOUBLE,        // aligned long or double   // 浮点类型
   NONSTATIC_OOP,
   NONSTATIC_BYTE,
   NONSTATIC_SHORT,
@@ -1071,14 +1071,16 @@ static FieldAllocationType basic_type_to_atype(bool is_static, BasicType type) {
 
 class FieldAllocationCount: public ResourceObj {
  public:
-  u2 count[MAX_FIELD_ALLOCATION_TYPE];
+  u2 count[MAX_FIELD_ALLOCATION_TYPE]; // count数组用来统计静态与非静态情况下各个类型变量的数量，这些类型通过FieldAllocationType枚举类定义。
 
   FieldAllocationCount() {
+    // MAX_FIELD_ALLOCATION_TYPE是定义在FieldAllocationType中的枚举常量，值为10，初始化count数组中的值为0
     for (int i = 0; i < MAX_FIELD_ALLOCATION_TYPE; i++) {
       count[i] = 0;
     }
   }
 
+  // 更新对应类型字段的总数量
   FieldAllocationType update(bool is_static, BasicType type) {
     FieldAllocationType atype = basic_type_to_atype(is_static, type);
     // Make sure there is no overflow with injected fields.
@@ -1088,6 +1090,7 @@ class FieldAllocationCount: public ResourceObj {
   }
 };
 
+// 字段解析流程
 Array<u2>* ClassFileParser::parse_fields(Symbol* class_name,
                                          bool is_interface,
                                          FieldAllocationCount *fac,
@@ -1122,6 +1125,18 @@ Array<u2>* ClassFileParser::parse_fields(Symbol* class_name,
   // index. After parsing all fields, the data are copied to a permanent
   // array and any unused slots will be discarded.
   ResourceMark rm(THREAD);
+  // NEW_RESOURCE_ARRAY_IN_THREAD为宏，扩展后，以下的调用语句如下：
+  // u2* fa = (u2*) resource_allocate_bytes(THREAD, (total_fields * (FieldInfo::field_slots + 1)) * sizeof(u2))
+  // FieldInfo::field_slots枚举常量的值为6，在内存中开辟total_fields * 7个sizeof(u2)大小的内存空间，
+  // 因为字段f1、f2、...、fn在存储时要按如下的格式存储：
+  // f1: [access, name index, sig index, initial value index, low_offset, high_offset]
+  // f2: [access, name index, sig index, initial value index, low_offset, high_offset]
+  // fn: [access, name index, sig index, initial value index, low_offset, high_offset]
+  // [generic signature index]
+  // [generic signature index]
+  // 如果有n个字段，那么每个字段要占用6个u2类型的存储空间，不过每个字段还可能会有generic signature index（占用1个u2类型的存储空间），
+  // 因此只能暂时开辟7个u2大小的存储空间，后面会按照实际情况分配真正需要的内存空间，然后进行复制操作即可，
+  // 这样就避免了由于某些字段没有generic signature index而浪费了分配的空间。
   u2* fa = NEW_RESOURCE_ARRAY_IN_THREAD(
              THREAD, u2, total_fields * (FieldInfo::field_slots + 1));
 
@@ -1131,13 +1146,13 @@ Array<u2>* ClassFileParser::parse_fields(Symbol* class_name,
   for (int n = 0; n < length; n++) {
     cfs->guarantee_more(8, CHECK_NULL);  // access_flags, name_index, descriptor_index, attributes_count
 
-    AccessFlags access_flags;
+    AccessFlags access_flags; // 读取变量的访问标识
     jint flags = cfs->get_u2_fast() & JVM_RECOGNIZED_FIELD_MODIFIERS;
     verify_legal_field_modifiers(flags, is_interface, CHECK_NULL);
     access_flags.set_flags(flags);
 
-    u2 name_index = cfs->get_u2_fast();
-    int cp_size = _cp->length();
+    u2 name_index = cfs->get_u2_fast(); // 读取变量的名称索引
+    int cp_size = _cp->length(); // 读取常量池中的数量
     check_property(valid_symbol_at(name_index),
       "Invalid constant pool index %u for field name in class file %s",
       name_index,
@@ -1145,7 +1160,7 @@ Array<u2>* ClassFileParser::parse_fields(Symbol* class_name,
     Symbol*  name = _cp->symbol_at(name_index);
     verify_legal_field_name(name, CHECK_NULL);
 
-    u2 signature_index = cfs->get_u2_fast();
+    u2 signature_index = cfs->get_u2_fast(); // 读取描述符索引
     check_property(valid_symbol_at(signature_index),
       "Invalid constant pool index %u for field signature in class file %s",
       signature_index, CHECK_NULL);
@@ -1158,7 +1173,7 @@ Array<u2>* ClassFileParser::parse_fields(Symbol* class_name,
     bool is_static = access_flags.is_static();
     FieldAnnotationCollector parsed_annotations(_loader_data);
 
-    u2 attributes_count = cfs->get_u2_fast();
+    u2 attributes_count = cfs->get_u2_fast(); // 读取变量属性
     if (attributes_count > 0) {
       parse_field_attributes(attributes_count, is_static, signature_index,
                              &constantvalue_index, &is_synthetic,
@@ -1194,6 +1209,7 @@ Array<u2>* ClassFileParser::parse_fields(Symbol* class_name,
       }
     }
 
+    // 取出第n个变量对应的6个u2类型的内存位置，然后将其强制转换为FieldInfo*，这样就可以通过FieldInfo类存取这6个属性。
     FieldInfo* field = FieldInfo::from_field_array(fa, n);
     field->initialize(access_flags.as_short(),
                       name_index,
@@ -1202,6 +1218,7 @@ Array<u2>* ClassFileParser::parse_fields(Symbol* class_name,
     BasicType type = _cp->basic_type_for_signature_at(signature_index);
 
     // Remember how many oops we encountered and compute allocation type
+    // 对字段的数量进行统计
     FieldAllocationType atype = fac->update(is_static, type);
     field->set_allocation_type(atype);
 
@@ -1210,6 +1227,7 @@ Array<u2>* ClassFileParser::parse_fields(Symbol* class_name,
       parsed_annotations.apply_to(field);
   }
 
+  // length就是解析Class文件中的字段数量
   int index = length;
   if (num_injected != 0) {
     for (int n = 0; n < num_injected; n++) {
@@ -1223,6 +1241,7 @@ Array<u2>* ClassFileParser::parse_fields(Symbol* class_name,
           if (name      == _cp->symbol_at(f->name_index()) &&
               signature == _cp->symbol_at(f->signature_index())) {
             // Symbol is desclared in Java so skip this one
+            // 需要注入字段的名称已经在java类中声明了，不需要通过注入的手段增加此字段了
             duplicate = true;
             break;
           }
@@ -1234,6 +1253,7 @@ Array<u2>* ClassFileParser::parse_fields(Symbol* class_name,
       }
 
       // Injected field
+      // 对字段进行注入
       FieldInfo* field = FieldInfo::from_field_array(fa, index);
       field->initialize(JVM_ACC_FIELD_INTERNAL,
                         injected[n].name_index,
@@ -1246,8 +1266,8 @@ Array<u2>* ClassFileParser::parse_fields(Symbol* class_name,
       FieldAllocationType atype = fac->update(false, type);
       field->set_allocation_type(atype);
       index++;
-    }
-  }
+    } // for循环结束
+  } // if判断结束
 
   // Now copy the fields' data from the temporary resource array.
   // Sometimes injected fields already exist in the Java source so
@@ -3211,6 +3231,7 @@ void ClassFileParser::layout_fields(Handle class_loader,
   bool is_contended_class     = parsed_annotations->is_contended();
 
   // Class is contended, pad before all the fields
+  // 类上有@Contended注解， 需要在开始时填充ContendedPaddingWidth字节
   if (is_contended_class) {
     next_nonstatic_field_offset += ContendedPaddingWidth;
   }
@@ -3219,6 +3240,7 @@ void ClassFileParser::layout_fields(Handle class_loader,
   // The packing code below relies on these counts to determine if some field
   // can be squeezed into the alignment gap. Contended fields are obviously
   // exempt from that.
+  // 计算除去有@Contended注解的字段的实例字段数量
   unsigned int nonstatic_double_count = fac->count[NONSTATIC_DOUBLE] - fac_contended.count[NONSTATIC_DOUBLE];
   unsigned int nonstatic_word_count   = fac->count[NONSTATIC_WORD]   - fac_contended.count[NONSTATIC_WORD];
   unsigned int nonstatic_short_count  = fac->count[NONSTATIC_SHORT]  - fac_contended.count[NONSTATIC_SHORT];
@@ -3226,6 +3248,7 @@ void ClassFileParser::layout_fields(Handle class_loader,
   unsigned int nonstatic_oop_count    = fac->count[NONSTATIC_OOP]    - fac_contended.count[NONSTATIC_OOP];
 
   // Total non-static fields count, including every contended field
+  // 计算所有的实例字段总数，包括有@Contended注解的字段
   unsigned int nonstatic_fields_count = fac->count[NONSTATIC_DOUBLE] + fac->count[NONSTATIC_WORD] +
                                         fac->count[NONSTATIC_SHORT] + fac->count[NONSTATIC_BYTE] +
                                         fac->count[NONSTATIC_OOP];
@@ -3250,15 +3273,26 @@ void ClassFileParser::layout_fields(Handle class_loader,
   unsigned int nonstatic_oop_map_count = 0;
   unsigned int max_nonstatic_oop_maps  = fac->count[NONSTATIC_OOP] + 1;
 
+  // 两个变量初始化为max_nonstatic_oop_map_count大小的整数数组
   nonstatic_oop_offsets = NEW_RESOURCE_ARRAY_IN_THREAD(
             THREAD, int, max_nonstatic_oop_maps);
   nonstatic_oop_counts  = NEW_RESOURCE_ARRAY_IN_THREAD(
             THREAD, unsigned int, max_nonstatic_oop_maps);
 
+  // 当前类中声明的所有对象类型变量中，第1个对象类型变量布局的偏移位置
   first_nonstatic_oop_offset = 0; // will be set for first oop field
 
-  bool compact_fields   = CompactFields;
-  int  allocation_style = FieldsAllocationStyle;
+  // 在HotSpot VM中， 对象布局有以下3种模式:
+  // allocation_style=0：字段排列顺序为oop、long/double、int、short/char、byte，最后是填充字段，以满足对齐要求；
+  // allocation_style=1：字段排列顺序为long/double、int、short/char、byte、oop，最后是填充字段，以满足对齐要求；
+  // allocation_style=2：HotSpot VM在布局时会尽量使父类oop和子类oop挨在一起；
+
+  // 由于填充会形成空隙，比如使用压缩指针时oop对象头占12字节，后面如果是long类型字段的话，long的对齐要求是8字节，中间会有4个字节的空隙，
+  // 为了提高内存利用率，可以把int、short、byte和oop等相对内存占用比较小的对象填充进去，
+  // 并且HotSpot VM提供了-XX:+/-CompactFields命令用于控制该特性，默认是开启的。
+
+  bool compact_fields   = CompactFields;                                    // 默认值为true
+  int  allocation_style = FieldsAllocationStyle;                            // 默认的布局为1
   if( allocation_style < 0 || allocation_style > 2 ) { // Out of range?
     assert(false, "0 <= FieldsAllocationStyle <= 2");
     allocation_style = 1; // Optimistic
@@ -3289,16 +3323,25 @@ void ClassFileParser::layout_fields(Handle class_loader,
   }
 
   // Rearrange fields for a given allocation style
+  // 根据对象布局模式allocation_style重新计算相关变量的值
   if( allocation_style == 0 ) {
     // Fields order: oops, longs/doubles, ints, shorts/chars, bytes, padded fields
+    // 字段布局顺序为oop、long/double、int、short/char、byte、填充首先布局oop类型的变量
     next_nonstatic_oop_offset    = next_nonstatic_field_offset;
     next_nonstatic_double_offset = next_nonstatic_oop_offset +
                                     (nonstatic_oop_count * heapOopSize);
   } else if( allocation_style == 1 ) {
     // Fields order: longs/doubles, ints, shorts/chars, bytes, oops, padded fields
+    // 字段布局顺序为long/double、int、short/char、byte、oop、填充首先布局long/double类型的变量
     next_nonstatic_double_offset = next_nonstatic_field_offset;
   } else if( allocation_style == 2 ) {
+    // 当allocation_style属性的值为2时，如果父类有OopMapBlock，那么_super_klass->nonstatic_oop_map_size()大于0，
+    // 并且父类将oop布局在末尾位置时可使用allocation_style=0来布局，这样子类会首先将自己的oop布局在开始位置，
+    // 正好和父类的oop连在一起，有利于GC扫描处理引用。剩下的其他情况都是按allocation_style属性值为1来布局的，也就是oop在末尾。
+
     // Fields allocation: oops fields in super and sub classes are together.
+    // 如果父对象有oop字段并且oop字段布局到了末尾，那么尽量应该将本对象的实例字段布局到开始位置，让父对象的oop与子对象的oop挨在一起
+    // nonstatic_field_size指的是父类的非静态变量占用的大小
     if( nonstatic_field_size > 0 && _super_klass() != NULL &&
         _super_klass->nonstatic_oop_map_size() > 0 ) {
       unsigned int map_count = _super_klass->nonstatic_oop_map_count();
@@ -3306,19 +3349,21 @@ void ClassFileParser::layout_fields(Handle class_loader,
       OopMapBlock* last_map = first_map + map_count - 1;
       int next_offset = last_map->offset() + (last_map->count() * heapOopSize);
       if (next_offset == next_nonstatic_field_offset) {
-        allocation_style = 0;   // allocate oops first
+        allocation_style = 0;   // allocate oops first // oop布局到开始位置
         next_nonstatic_oop_offset    = next_nonstatic_field_offset;
         next_nonstatic_double_offset = next_nonstatic_oop_offset +
                                        (nonstatic_oop_count * heapOopSize);
       }
     }
     if( allocation_style == 2 ) {
-      allocation_style = 1;     // allocate oops last
+      allocation_style = 1;     // allocate oops last // oop布局到最后
       next_nonstatic_double_offset = next_nonstatic_field_offset;
     }
   } else {
     ShouldNotReachHere();
   }
+
+  // 选定了布局策略allocation_style后， 首先要向空隙中填充字段
 
   int nonstatic_oop_space_count   = 0;
   int nonstatic_word_space_count  = 0;
@@ -3331,20 +3376,26 @@ void ClassFileParser::layout_fields(Handle class_loader,
 
   // Try to squeeze some of the fields into the gaps due to
   // long/double alignment.
+  // 向空隙中填充字段，填充的顺序为int、short、byte、oop。当有long/double类型的实例变量存在时，可能存在空隙
   if( nonstatic_double_count > 0 ) {
     int offset = next_nonstatic_double_offset;
     next_nonstatic_double_offset = align_size_up(offset, BytesPerLong);
+    // 只有开启了-XX:+CompactFields命令时才会进行空隙填充
     if( compact_fields && offset != next_nonstatic_double_offset ) {
       // Allocate available fields into the gap before double field.
       int length = next_nonstatic_double_offset - offset;
       assert(length == BytesPerInt, "");
+      // nonstatic_word_count记录了word的总数，由于这个空隙算一个特殊位置，因此把放入这里的word从正常情况删除，
+      // 并加入特殊的nonstatic_word_space_count
       nonstatic_word_space_offset = offset;
+      // 由于long/double是8字节对齐，所以最多只能有7个字节的空隙。最多只能填充一个word类型的变量
       if( nonstatic_word_count > 0 ) {
         nonstatic_word_count      -= 1;
         nonstatic_word_space_count = 1; // Only one will fit
         length -= BytesPerInt;
         offset += BytesPerInt;
       }
+      // short、byte可能会填充多个，所以需要循环填充
       nonstatic_short_space_offset = offset;
       while( length >= BytesPerShort && nonstatic_short_count > 0 ) {
         nonstatic_short_count       -= 1;
@@ -3360,6 +3411,8 @@ void ClassFileParser::layout_fields(Handle class_loader,
       }
       // Allocate oop field in the gap if there are no other fields for that.
       nonstatic_oop_space_offset = offset;
+      // heapOopSize在开启指针压缩时为4，否则为8，所以一个oop占用的字节数要看heapOopSize的大小，理论上空隙最多只能存放一个oop实例
+      // allocation_style必须不等于0，因为等于0时oop要分配到开始的位置和父类的oop进行连续存储，不能进行空隙填充
       if( length >= heapOopSize && nonstatic_oop_count > 0 &&
           allocation_style != 0 ) { // when oop fields not first
         nonstatic_oop_count      -= 1;
@@ -3380,6 +3433,7 @@ void ClassFileParser::layout_fields(Handle class_loader,
                                 nonstatic_byte_count;
 
   // let oops jump before padding with this allocation style
+  // allocation_style为1时的字段排列顺序为long/double、int、short/char、byte、oop
   if( allocation_style == 1 ) {
     next_nonstatic_oop_offset = next_nonstatic_padded_offset;
     if( nonstatic_oop_count > 0 ) {
@@ -3388,15 +3442,19 @@ void ClassFileParser::layout_fields(Handle class_loader,
     next_nonstatic_padded_offset = next_nonstatic_oop_offset + (nonstatic_oop_count * heapOopSize);
   }
 
+  // 计算每个字段的偏移量
+
   // Iterate over fields again and compute correct offsets.
   // The field allocation type was temporarily stored in the offset slot.
   // oop fields are located before non-oop fields (static and non-static).
   for (AllFieldStream fs(_fields, _cp); !fs.done(); fs.next()) {
 
     // skip already laid out fields
+    // 跳过已经计算出布局位置的字段
     if (fs.is_offset_set()) continue;
 
     // contended instance fields are handled below
+    // 不处理有@Contended注解的实例字段
     if (fs.is_contended() && !fs.access_flags().is_static()) continue;
 
     int real_offset;
@@ -3424,6 +3482,7 @@ void ClassFileParser::layout_fields(Handle class_loader,
         real_offset = next_static_double_offset;
         next_static_double_offset += BytesPerLong;
         break;
+      // 循环遍历当前类中定义的所有字段，如果字段的类型为对象类型 则执行如下逻辑
       case NONSTATIC_OOP:
         if( nonstatic_oop_space_count > 0 ) {
           real_offset = nonstatic_oop_space_offset;
@@ -3434,16 +3493,19 @@ void ClassFileParser::layout_fields(Handle class_loader,
           next_nonstatic_oop_offset += heapOopSize;
         }
         // Update oop maps
+        // 生成OopMapBlock需要的信息
         if( nonstatic_oop_map_count > 0 &&
             nonstatic_oop_offsets[nonstatic_oop_map_count - 1] ==
             real_offset -
             int(nonstatic_oop_counts[nonstatic_oop_map_count - 1]) *
             heapOopSize ) {
           // Extend current oop map
+          // 扩展当前的OopMapBlock，也就是更新_count的值
           assert(nonstatic_oop_map_count - 1 < max_nonstatic_oop_maps, "range check");
           nonstatic_oop_counts[nonstatic_oop_map_count - 1] += 1;
         } else {
           // Create new oop map
+          // 第1次处理当前类的对象类型变量时，由于nonstatic_oop_map_count为0，因此会进入这个逻辑，创建一个新的OopMapBlock。
           assert(nonstatic_oop_map_count < max_nonstatic_oop_maps, "range check");
           nonstatic_oop_offsets[nonstatic_oop_map_count] = real_offset;
           nonstatic_oop_counts [nonstatic_oop_map_count] = 1;
@@ -3490,9 +3552,11 @@ void ClassFileParser::layout_fields(Handle class_loader,
       default:
         ShouldNotReachHere();
     }
+    // 将计算出的具体的字段偏移量保存到每个字段中
     fs.set_offset(real_offset);
   }
 
+  // @Contended字段的偏移量
 
   // Handle the contended cases.
   //
@@ -3502,12 +3566,16 @@ void ClassFileParser::layout_fields(Handle class_loader,
   //
   // Additionally, this should not break alignment for the fields, so we round the alignment up
   // for each field.
+
+  // 标注有@Contended注解的字段数量大于0
   if (nonstatic_contended_count > 0) {
 
     // if there is at least one contended field, we need to have pre-padding for them
+    // 需要在@Contended字段之前填充ContendedPaddingWidth字节
     next_nonstatic_padded_offset += ContendedPaddingWidth;
 
     // collect all contended groups
+    // 用BitMap保存所有的字段分组信息
     BitMap bm(_cp->size());
     for (AllFieldStream fs(_fields, _cp); !fs.done(); fs.next()) {
       // skip already laid out fields
@@ -3517,7 +3585,7 @@ void ClassFileParser::layout_fields(Handle class_loader,
         bm.set_bit(fs.contended_group());
       }
     }
-
+    // 将同一组的@Contended字段布局在一起
     int current_group = -1;
     while ((current_group = (int)bm.get_next_one_offset(current_group + 1)) != (int)bm.size()) {
 
@@ -3530,6 +3598,7 @@ void ClassFileParser::layout_fields(Handle class_loader,
         if (!fs.is_contended() || (fs.contended_group() != current_group)) continue;
 
         // handle statics below
+        // 不对静态字段布局，在oop实例中只对非静态字段布局
         if (fs.access_flags().is_static()) continue;
 
         int real_offset;
@@ -3578,7 +3647,7 @@ void ClassFileParser::layout_fields(Handle class_loader,
           default:
             ShouldNotReachHere();
         }
-
+        // 当fs.contended_group()为0时，表示没有为字段分组，所有字段之间都要填充ContendedPaddingWidth个字节，包括最后一个字段的末尾
         if (fs.contended_group() == 0) {
           // Contended group defines the equivalence class over the fields:
           // the fields within the same contended group are not inter-padded.
@@ -3586,7 +3655,7 @@ void ClassFileParser::layout_fields(Handle class_loader,
           // equivalence, and so requires intra-padding.
           next_nonstatic_padded_offset += ContendedPaddingWidth;
         }
-
+        // 保存每个字段的实际偏移量
         fs.set_offset(real_offset);
       } // for
 
@@ -3595,6 +3664,8 @@ void ClassFileParser::layout_fields(Handle class_loader,
       // this is expected to alleviate memory contention effects for
       // subclass fields and/or adjacent object.
       // If this was the default group, the padding is already in place.
+
+      // 如果current_group为0，则表示最后一个字段的末尾已经进行了填充，否则组与组之间以及最后一个组后都需要填充ContendedPaddingWidth个字节
       if (current_group != 0) {
         next_nonstatic_padded_offset += ContendedPaddingWidth;
       }
@@ -3636,6 +3707,7 @@ void ClassFileParser::layout_fields(Handle class_loader,
          (nonstatic_fields_count > 0), "double-check nonstatic start/end");
 
   // Number of non-static oop map blocks allocated at end of klass.
+  // 计算InstanceKlass实例需要的OopMapBlock数量
   const unsigned int total_oop_map_count =
     compute_oop_map_count(_super_klass, nonstatic_oop_map_count,
                           first_nonstatic_oop_offset);
@@ -3653,6 +3725,7 @@ void ClassFileParser::layout_fields(Handle class_loader,
 
 #endif
   // Pass back information needed for InstanceKlass creation
+  // FieldLayoutInfo*是info的类型
   info->nonstatic_oop_offsets = nonstatic_oop_offsets;
   info->nonstatic_oop_counts = nonstatic_oop_counts;
   info->nonstatic_oop_map_count = nonstatic_oop_map_count;
@@ -4253,6 +4326,9 @@ void ClassFileParser::print_field_layout(Symbol* name,
   tty->print("\n");
 }
 
+// 计算当前InstanceKlass实例需要的OopMapBlock数量。
+// 一个类中有对象类型的字段时也不一定会生成OopMapBlock，如果父类将对象类型字段布局在末尾，而子类将对象字段布局在开始位置，
+// 则这些对象字段是连续的，我们只需要将父类的OopMapBlock实例中的_count加上子类对象字段的数量即可。
 unsigned int
 ClassFileParser::compute_oop_map_count(instanceKlassHandle super,
                                        unsigned int nonstatic_oop_map_count,
@@ -4262,20 +4338,25 @@ ClassFileParser::compute_oop_map_count(instanceKlassHandle super,
   if (nonstatic_oop_map_count > 0) {
     // We have oops to add to map
     if (map_count == 0) {
+      // 如果当前类中不需要生成OopMapBlock，那么当前类中的OopMapBlock就是继承自父类的OopMapBlock
       map_count = nonstatic_oop_map_count;
     } else {
       // Check whether we should add a new map block or whether the last one can
       // be extended
+      // 计算当前类是自己生成OopMapBlock，还是扩展父类最后一个OopMapBlock
       OopMapBlock* const first_map = super->start_of_nonstatic_oop_maps();
       OopMapBlock* const last_map = first_map + map_count - 1;
 
+      // 父类对象类型字段区域末尾的偏移
       int next_offset = last_map->offset() + last_map->count() * heapOopSize;
       if (next_offset == first_nonstatic_oop_offset) {
         // There is no gap bettwen superklass's last oop field and first
         // local oop field, merge maps.
+        // 如果父类对象类型字段的末尾位置和子类对象类型字段的开始位置相同，则说明对象类型字段中间没有间隔，直接扩展从父类继承的OopMapBlock即可
         nonstatic_oop_map_count -= 1;
       } else {
         // Superklass didn't end with a oop field, add extra maps
+        // 子类自己需要一个新的OopMapBlock
         assert(next_offset < first_nonstatic_oop_offset, "just checking");
       }
       map_count += nonstatic_oop_map_count;
@@ -4284,7 +4365,7 @@ ClassFileParser::compute_oop_map_count(instanceKlassHandle super,
   return map_count;
 }
 
-
+// 填充OopMapBlock的信息
 void ClassFileParser::fill_oop_maps(instanceKlassHandle k,
                                     unsigned int nonstatic_oop_map_count,
                                     int* nonstatic_oop_offsets,
@@ -4294,6 +4375,7 @@ void ClassFileParser::fill_oop_maps(instanceKlassHandle k,
   const unsigned int super_count = super ? super->nonstatic_oop_map_count() : 0;
   if (super_count > 0) {
     // Copy maps from superklass
+    // 将父类的OopMapBlock信息复制到当前的InstanceKlass实例中
     OopMapBlock* super_oop_map = super->start_of_nonstatic_oop_maps();
     for (unsigned int i = 0; i < super_count; ++i) {
       *this_oop_map++ = *super_oop_map++;
@@ -4305,14 +4387,17 @@ void ClassFileParser::fill_oop_maps(instanceKlassHandle k,
       // The counts differ because there is no gap between superklass's last oop
       // field and the first local oop field.  Extend the last oop map copied
       // from the superklass instead of creating new one.
+      // 扩展从父类复制的最后一个OopMapBlock，这样子类就不需要自己再创建一个新的OopMapBlock，OopMapBlock的数量就会少1
       nonstatic_oop_map_count--;
       nonstatic_oop_offsets++;
       this_oop_map--;
+      // 更新父类复制的OopMapBlock的_count属性
       this_oop_map->set_count(this_oop_map->count() + *nonstatic_oop_counts++);
       this_oop_map++;
     }
 
     // Add new map blocks, fill them
+    // 当前类需要自己创建一个OopMapBlock
     while (nonstatic_oop_map_count-- > 0) {
       this_oop_map->set_offset(*nonstatic_oop_offsets++);
       this_oop_map->set_count(*nonstatic_oop_counts++);
