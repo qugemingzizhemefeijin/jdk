@@ -32,19 +32,25 @@
 #include "utilities/copy.hpp"
 
 inline HeapWord* ThreadLocalAllocBuffer::allocate(size_t size) {
+  // 首先检查当前TLAB的一些不变量，以确保当前TLAB处于正确的状态。
   invariants();
+  // 然后将对象指针obj设置为当前TLAB的顶部（即上一次分配之后的位置）。
   HeapWord* obj = top();
+  // 如果当前TLAB空间足够分配大小为size的对象，则将obj的值返回。否则，返回NULL。
   if (pointer_delta(end(), obj) >= size) {
     // successful thread-local allocation
 #ifdef ASSERT
     // Skip mangling the space corresponding to the object header to
     // ensure that the returned space is not considered parsable by
     // any concurrent GC thread.
+    // 如果当前TLAB空间足够分配对象，则使用Copy::fill_to_words方法在分配的空间中填充非法的值（badHeapWordVal），
+    // 以确保在并发垃圾回收过程中不会将其误认为是可回收对象。
     size_t hdr_size = oopDesc::header_size();
     Copy::fill_to_words(obj + hdr_size, size - hdr_size, badHeapWordVal);
 #endif // ASSERT
     // This addition is safe because we know that top is
     // at least size below end, so the add can't wrap.
+    // 将TLAB的顶部指针（即top指针）向上移动，以表示该空间已经被分配，返回指向新分配的对象的指针。
     set_top(obj + size);
 
     invariants();

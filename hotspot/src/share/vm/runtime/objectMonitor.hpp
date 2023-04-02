@@ -35,23 +35,33 @@
 // knows about ObjectWaiters, so we'll have to reconcile that code.
 // See next_waiter(), first_waiter(), etc.
 
+// ObjectWaiter是一个用于等待唤醒的数据结构。在Java中，Object.wait() 方法调用后，线程会被挂起，
+// 直到另一个线程调用Object.notify() 或 Object.notifyAll() 方法，或者线程等待时间到期，或者线程被中断，才会被唤醒。
+// 当一个线程调用Object.wait() 方法后，会创建一个ObjectWaiter对象，该对象会被加入到等待队列中。
+// 当另一个线程调用Object.notify() 或 Object.notifyAll() 方法时，会从等待队列中取出一个或多个ObjectWaiter对象，
+// 并将它们加入到可用队列中，以便在下一次竞争锁时唤醒这些线程。
 class ObjectWaiter : public StackObj {
  public:
   enum TStates { TS_UNDEF, TS_READY, TS_RUN, TS_WAIT, TS_ENTER, TS_CXQ } ;
   enum Sorted  { PREPEND, APPEND, SORTED } ;
-  ObjectWaiter * volatile _next;
-  ObjectWaiter * volatile _prev;
-  Thread*       _thread;
-  jlong         _notifier_tid;
-  ParkEvent *   _event;
-  volatile int  _notified ;
-  volatile TStates TState ;
-  Sorted        _Sorted ;           // List placement disposition
-  bool          _active ;           // Contention monitoring is enabled
+  ObjectWaiter * volatile _next;    // 指向下一个 ObjectWaiter，通过双向链表将多个 ObjectWaiter 连接起来
+  ObjectWaiter * volatile _prev;    // 指向上一个 ObjectWaiter，通过双向链表将多个 ObjectWaiter 连接起来
+  Thread*       _thread;            // 指向线程对象，该对象在等待队列中被加入或移除
+  jlong         _notifier_tid;      // 记录调用 notify 或 notifyAll 方法的线程 ID
+  ParkEvent *   _event;             // 指向一个 ParkEvent 对象，用于等待线程唤醒的信号
+  volatile int  _notified ;         // 记录线程是否被唤醒，唤醒后该属性被置为 1
+  volatile TStates TState ;         // 指示 ObjectWaiter 的状态，分为6种状态，分别是TS_UNDEF、TS_READY、TS_RUN、TS_WAIT、TS_ENTER、TS_CXQ
+  Sorted        _Sorted ;           // List placement disposition // 表示等待队列中的 ObjectWaiter 如何排序，分为 PREPEND、APPEND、SORTED
+  bool          _active ;           // Contention monitoring is enabled // 记录是否开启争用监控，开启后可以通过 jcmd 命令查看线程的竞争情况
  public:
   ObjectWaiter(Thread* thread);
 
+  // 函数的作用是将一个线程标记为阻塞在ObjectMonitor上的状态，并设置对应的_blocked_on_monitor_enter_state属性。
+  // wait_reenter_begin的作用是标记一个线程进入了重新进入（re-entering）状态，即该线程之前曾经拥有过ObjectMonitor的锁，
+  // 现在重新申请锁并被阻塞在了ObjectMonitor上。这个标记的作用是让ObjectMonitor在后续的唤醒操作中优先选择该线程。
   void wait_reenter_begin(ObjectMonitor *mon);
+
+  // 完成线程状态的还原以及唤醒等待线程的工作。将_active状态重置为JavaThreadBlockedOnMonitorEnterState::MonitorIdle。
   void wait_reenter_end(ObjectMonitor *mon);
 };
 
@@ -73,7 +83,9 @@ class EventJavaMonitorWait;
 
 // It is also used as RawMonitor by the JVMTI
 
-
+// objectMoitor在每个Java对象中都具有一个一个ObjectMonitor对象。在Java中，每个对象都可以用作锁来同步多个线程的访问。
+// 当线程获取某个对象的锁时，它实际上是获取该对象关联的ObjectMonitor对象的锁。
+// 因此，每个对象在Java中都有一个与之关联的ObjectMonitor对象来控制线程对该对象的访问。
 class ObjectMonitor {
  public:
   enum {
@@ -138,19 +150,19 @@ class ObjectMonitor {
   // initialize the monitor, exception the semaphore, all other fields
   // are simple integers or pointers
   ObjectMonitor() {
-    _header       = NULL;
+    _header       = NULL;   // 对象头
     _count        = 0;
     _waiters      = 0,
-    _recursions   = 0;
-    _object       = NULL;
-    _owner        = NULL;
-    _WaitSet      = NULL;
+    _recursions   = 0;      // 锁的重入次数
+    _object       = NULL;   // 对应synchronized (object)对应里面的object
+    _owner        = NULL;   // 标识拥有该monitor的线程（当前获取锁的线程）
+    _WaitSet      = NULL;   // 等待线程（调用wait）组成的双向循环链表，_WaitSet是第一个节点
     _WaitSetLock  = 0 ;
     _Responsible  = NULL ;
     _succ         = NULL ;
-    _cxq          = NULL ;
+    _cxq          = NULL ;  // 多线程竞争锁会先存到这个单向链表中（FILO栈结构）
     FreeNext      = NULL ;
-    _EntryList    = NULL ;
+    _EntryList    = NULL ;  // 存放在进入或重新进入时被阻塞(blocked)的线程 (也是存竞争锁失败的线程)
     _SpinFreq     = 0 ;
     _SpinClock    = 0 ;
     OwnerIsThread = 0 ;
@@ -195,7 +207,24 @@ public:
 #endif
 
   bool      try_enter (TRAPS) ;
+
+  // 在这个函数中主要实现的获取锁的操作。
+  // 首先如果没有线程使用这个锁则，直接获取锁，若有线程是会尝试通过原子操作来将当前线程设置成此对象的监视器锁的持有者。
+  // 如果原来的持有者是 null，则当前线程成功获取到了锁。如果原来的持有者是当前线程，则说明当前线程已经持有该锁，并且将计数器递增；
+  // 如果原来的持有者是其他线程，则说明存在多线程竞争，代码会将当前线程阻塞，并且进入一个等待队列中等待被唤醒。
+  // 如果开启了自旋锁，则会尝试自旋一段时间，以避免多线程竞争导致的阻塞开销过大。
+  // 如果自旋后仍未获得锁，则当前线程将进入一个等待队列中，并且设置自己为队列的尾部。等待队列中的线程按照LIFO（避免头部饥饿）的顺序进行排队。
+  // 当持有者释放锁时，队列头的线程将被唤醒并尝试重新获取锁。
   void      enter(TRAPS);
+
+  // 用于释放当前线程占用的 monitor 并唤醒等待该 monitor 的其他线程。
+  // exit是Java虚拟机中用于处理对象锁的代码。它的作用是释放当前线程持有的对象锁，并允许等待该锁的其他线程竞争该锁。具体而言，它执行以下操作：
+  // 1.检查当前线程是否持有该锁。如果没有持有该锁，会对其进行修复（假设线程实际上持有该锁，但是由于某些原因，owner字段没有正确更新）
+  //   或抛出异常（如果线程没有正确地获取该锁，即不在_owner字段中）。
+  // 2.如果当前线程是多次重入该锁，将计数器减1，并直接返回。这是因为线程实际上仍然持有该锁。
+  // 3.检查是否有其他线程等待该锁。如果没有等待线程，直接将_owner字段设置为null并返回。如果有等待线程，则释放该锁，并使等待线程之一成为新的owner。
+  // 4.如果等待线程中有线程使用了公平自旋（Ticket Spinlock算法），则使用该算法来释放该锁。
+  //   否则，使用等待队列或Cache Exclusive Queue（CXQ）算法来释放该锁。这些算法可以更有效地处理多个线程对同一对象锁的竞争，从而提高性能。
   void      exit(bool not_suspended, TRAPS);
   void      wait(jlong millis, bool interruptable, TRAPS);
   void      notify(TRAPS);
@@ -220,6 +249,8 @@ public:
   int       TrySpin_VaryFrequency (Thread * Self) ;
   int       TrySpin_VaryDuration  (Thread * Self) ;
   void      ctAsserts () ;
+  // ExitEpilog唤醒的是等待时间最长的线程，也就是队列中第一个入队的线程。
+  // 具体来说，由于是先入队的线程会排在后面，所以等待时间最长的线程会位于队列的头部。在这里，直接将头部线程从等待队列中移除，然后唤醒它即可。
   void      ExitEpilog (Thread * Self, ObjectWaiter * Wakee) ;
   bool      ExitSuspendEquivalent (JavaThread * Self) ;
   void      post_monitor_wait_event(EventJavaMonitorWait * event,
@@ -237,7 +268,9 @@ public:
   // TODO-FIXME: assert that offsetof(_header) is 0 or get rid of the
   // implicit 0 offset in emitted code.
 
+  // 表示对象状态的标记。用于与 Java 层面的对象状态 (如 LOCKED 或 UNLOCKED) 对应
   volatile markOop   _header;       // displaced object header word - mark
+  // 指向被监视的对象，即 Java 层面的对象
   void*     volatile _object;       // backward object pointer - strong root
 
   double SharingPad [1] ;           // temp to reduce false sharing
@@ -247,24 +280,35 @@ public:
   // read from other threads.
 
  protected:                         // protected for jvmtiRawMonitor
+  // 指向线程或 Lock，表示当前拥有监视器的对象
   void *  volatile _owner;          // pointer to owning thread OR BasicLock
+  // 前一个持有监视器的线程的线程 ID
   volatile jlong _previous_owner_tid; // thread id of the previous owner of the monitor
+  // 表示进入 monitor 的次数以避免重复进入 monitor
   volatile intptr_t  _recursions;   // recursion count, 0 for first entry
  private:
   int OwnerIsThread ;               // _owner is (Thread *) vs SP/BasicLock
+  // 一个 ObjectWaiter 对象的链表，用于存储被阻塞在 monitor 进入的线程。
+  // 当一个线程在等待锁时，它会被添加到_cxq中以等待锁资源。当锁被释放时，_cxq中的线程会被从中移除并与其他等待线程竞争锁的拥有权。
   ObjectWaiter * volatile _cxq ;    // LL of recently-arrived threads blocked on entry.
                                     // The list is actually composed of WaitNodes, acting
                                     // as proxies for Threads.
  protected:
+  // 一个 ObjectWaiter 对象的列表，用于存储被阻塞的线程等待 monitor 进入。
+  // 是一个锁等待队列，用于存储等待锁的线程信息。当一个线程需要获取锁但锁已被其他线程占用时，该线程会被放入_EntryList中并进入等待状态。
+  // 当锁被释放时，ObjectMonitor会从_EntryList队列中寻找下一个线程来获取锁。
   ObjectWaiter * volatile _EntryList ;     // Threads blocked on entry or reentry.
  private:
+  // 目前所处于锁定状态的锁创建者或是目前正在尝试锁定锁的线程
   Thread * volatile _succ ;          // Heir presumptive thread - used for futile wakeup throttling
+  // 目前真正的锁创建者，由于一些原因，前面的 _succ 没有成功锁定，但是又需要处理关于之前线程的唤醒，所以通过 _Responsible 来完成该工作
   Thread * volatile _Responsible ;
   int _PromptDrain ;                // rqst to drain cxq into EntryList ASAP
-
+  // 表示是否允许某个等待线程接管 monitor，可能会降低锁申请的时间，但是也可能存在锁申请时间增加的情况
   volatile int _Spinner ;           // for exit->spinner handoff optimization
   volatile int _SpinFreq ;          // Spin 1-out-of-N attempts: success rate
   volatile int _SpinClock ;
+  // 表示可接管等待线程的最长时间，过了这个时间就必须释放 monitor
   volatile int _SpinDuration ;
   volatile intptr_t _SpinState ;    // MCS/CLH list of spinners
 
@@ -272,15 +316,21 @@ public:
   // type int, or int32_t but not intptr_t.  There's no reason
   // to use 64-bit fields for these variables on a 64-bit JVM.
 
+  // 用于防止在全局停滞期间释放或缩小此监视器
   volatile intptr_t  _count;        // reference count to prevent reclaimation/deflation
                                     // at stop-the-world time.  See deflate_idle_monitors().
                                     // _count is approximately |_WaitSet| + |_EntryList|
  protected:
+  // 存储 _WaitSet 链表中对象的数量的计数器
   volatile intptr_t  _waiters;      // number of waiting threads
  private:
  protected:
+  // 一个 ObjectWaiter 对象的链表，用于存储被阻塞的线程由于 wait() 或 join() 等待 monitor 的状态。
+  // 当一个线程调用了Object.wait()方法并进入等待状态时，它会被添加到WaitSet中。
+  // 在对象监视器被notify()或notifyAll()方法唤醒时，WaitSet中的线程会被从中移除并与其他等待线程竞争锁的拥有权。
   ObjectWaiter * volatile _WaitSet; // LL of threads wait()ing on the monitor
  private:
+  // 保护 _WaitSet 链表的自旋锁
   volatile int _WaitSetLock;        // protects Wait Queue - simple spinlock
 
  public:

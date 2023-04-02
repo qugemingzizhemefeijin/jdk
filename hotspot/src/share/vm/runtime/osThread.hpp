@@ -57,14 +57,23 @@ enum ThreadState {
 // the assembler test in java.cpp expects that it can install the OSThread of
 // the main thread into its own Thread at will.
 
-
+// OSThread主要负责把Java线程映射到操作系统线程上，实现Java线程与操作系统线程之间的交互和通信。
+// OSThread类是HotSpot虚拟机中非常重要的一个类，它负责将Java线程映射到操作系统线程上，并实现Java线程与操作系统线程之间的交互和通信。
+// OSThread类的作用主要包括以下几个方面：
+//   1.创建和销毁操作系统线程：OSThread类封装了操作系统线程的创建和销毁接口，并提供了对应的静态方法create和destroy，
+//     用于创建和销毁操作系统线程。
+//   2.管理操作系统线程的状态：OSThread类维护了操作系统线程的状态，包括线程是否已启动、线程是否已结束等信息。
+//     它还提供了相应的方法，用于查询和修改线程状态。
+//   3.管理Java线程与操作系统线程之间的映射关系：OSThread类将Java线程和操作系统线程之间建立映射关系，并提供了相应的方法，
+//     用于查询和修改Java线程和操作系统线程之间的关系。
+//   4.管理操作系统线程的优先级：OSThread类提供了相应的方法，用于查询和修改操作系统线程的优先级。
 class OSThread: public CHeapObj<mtThread> {
   friend class VMStructs;
  private:
-  OSThreadStartFunc _start_proc;  // Thread start routine
-  void* _start_parm;              // Thread start routine parameter
-  volatile ThreadState _state;    // Thread state *hint*
-  volatile jint _interrupted;     // Thread.isInterrupted state
+  OSThreadStartFunc _start_proc;  // Thread start routine               // 线程启动时调用的函数指针
+  void* _start_parm;              // Thread start routine parameter     // 线程启动时传递给函数的参数
+  volatile ThreadState _state;    // Thread state *hint*                // 线程状态
+  volatile jint _interrupted;     // Thread.isInterrupted state         // 线程是否被中断
 
   // Note:  _interrupted must be jint, so that Java intrinsics can access it.
   // The value stored there must be either 0 or 1.  It must be possible
@@ -121,7 +130,7 @@ class OSThread: public CHeapObj<mtThread> {
   // _thread_id is kernel thread id (similar to LWP id on Solaris). Each
   // thread has a unique thread_id (BsdThreads or NPTL). It can be used
   // to access /proc.
-  thread_id_t _thread_id;
+  thread_id_t _thread_id;                          // 操作系统中线程的唯一标识符
 };
 
 

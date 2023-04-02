@@ -163,6 +163,7 @@ static volatile int MonitorPopulation = 0 ;      // # Extant -- in circulation
 // if the following function is changed. The implementation is
 // extremely sensitive to race condition. Be careful.
 
+// 偏向锁入口
 void ObjectSynchronizer::fast_enter(Handle obj, BasicLock* lock, bool attempt_rebias, TRAPS) {
  // 判断是否开启偏向锁
  if (UseBiasedLocking) {
@@ -178,15 +179,17 @@ void ObjectSynchronizer::fast_enter(Handle obj, BasicLock* lock, bool attempt_re
     assert(!obj->mark()->has_bias_pattern(), "biases should be revoked by now");
  }
 
+ // 不能偏向，就获取轻量级锁
  slow_enter (obj, lock, THREAD) ;
 }
 
+// 轻量级锁撤销
 void ObjectSynchronizer::fast_exit(oop object, BasicLock* lock, TRAPS) {
   assert(!object->mark()->has_bias_pattern(), "should not see bias pattern here");
   // if displaced header is null, the previous enter is recursive enter, no-op
   markOop dhw = lock->displaced_header();
   markOop mark ;
-  if (dhw == NULL) {
+  if (dhw == NULL) { // 若是header为null，说明这是线程重入的栈帧，直接返回，不用回写
      // Recursive stack-lock.
      // Diagnostics -- Could be: stack-locked, inflating, inflated.
      mark = object->mark() ;
@@ -208,12 +211,13 @@ void ObjectSynchronizer::fast_exit(oop object, BasicLock* lock, TRAPS) {
   // swing the displaced header from the box back to the mark.
   if (mark == (markOop) lock) {
      assert (dhw->is_neutral(), "invariant") ;
+     // CAS将Mark Word内容写回
      if ((markOop) Atomic::cmpxchg_ptr (dhw, object->mark_addr(), mark) == mark) {
         TEVENT (fast_exit: release stacklock) ;
         return;
      }
   }
-
+  // CAS操做失败，轻量级锁膨胀，为何在撤销锁的时候会有失败的可能？
   ObjectSynchronizer::inflate(THREAD, object)->exit (true, THREAD) ;
 }
 
@@ -222,10 +226,11 @@ void ObjectSynchronizer::fast_exit(oop object, BasicLock* lock, TRAPS) {
 // This routine is used to handle interpreter/compiler slow case
 // We don't need to use fast path here, because it must have been
 // failed in the interpreter/compiler code.
+// 轻量级锁入口
 void ObjectSynchronizer::slow_enter(Handle obj, BasicLock* lock, TRAPS) {
-  markOop mark = obj->mark();
+  markOop mark = obj->mark(); // 得到Mark Word
   assert(!mark->has_bias_pattern(), "should not see bias pattern here");
-
+  // 是否无锁不可偏向，标志001
   if (mark->is_neutral()) {
     // Anticipate successful CAS -- the ST of the displaced mark must
     // be visible <= the ST performed by the CAS.
@@ -236,10 +241,10 @@ void ObjectSynchronizer::slow_enter(Handle obj, BasicLock* lock, TRAPS) {
     }
     // Fall through to inflate() ...
   } else
-  if (mark->has_locker() && THREAD->is_lock_owned((address)mark->locker())) {
+  if (mark->has_locker() && THREAD->is_lock_owned((address)mark->locker())) { // 若是Mark Word指向本地栈帧，线程重入
     assert(lock != mark->locker(), "must not re-lock the same lock");
     assert(lock != (BasicLock*)obj->mark(), "don't relock with same BasicLock");
-    lock->set_displaced_header(NULL);
+    lock->set_displaced_header(NULL); // header设置为null
     return;
   }
 
@@ -256,6 +261,7 @@ void ObjectSynchronizer::slow_enter(Handle obj, BasicLock* lock, TRAPS) {
   // must be non-zero to avoid looking like a re-entrant lock,
   // and must not look locked either.
   lock->set_displaced_header(markOopDesc::unused_mark());
+  // 轻量级锁膨胀，膨胀完成以后尝试获取重量级锁
   ObjectSynchronizer::inflate(THREAD, obj())->enter(THREAD);
 }
 
@@ -383,8 +389,10 @@ void ObjectSynchronizer::wait(Handle obj, jlong millis, TRAPS) {
     TEVENT (wait - throw IAX) ;
     THROW_MSG(vmSymbols::java_lang_IllegalArgumentException(), "timeout value is negative");
   }
+  // 得到Object的monitor对象(即内置锁)
   ObjectMonitor* monitor = ObjectSynchronizer::inflate(THREAD, obj());
   DTRACE_MONITOR_WAIT_PROBE(monitor, obj(), THREAD, millis);
+  // 调用monitor的wait方法
   monitor->wait(millis, true, THREAD);
 
   /* This dummy call is in place to get around dtrace bug 6254741.  Once
@@ -415,6 +423,7 @@ void ObjectSynchronizer::notify(Handle obj, TRAPS) {
   if (mark->has_locker() && THREAD->is_lock_owned((address)mark->locker())) {
     return;
   }
+  // 调用ObjectSynchronizer::inflate方法
   ObjectSynchronizer::inflate(THREAD, obj())->notify(THREAD);
 }
 
@@ -1196,8 +1205,8 @@ ObjectMonitor * ATTR ObjectSynchronizer::inflate (Thread * Self, oop object) {
   assert (Universe::verify_in_progress() ||
           !SafepointSynchronize::is_at_safepoint(), "invariant") ;
 
-  for (;;) {
-      const markOop mark = object->mark() ;
+  for (;;) { // 为后面的continue操做提供自旋
+      const markOop mark = object->mark() ; // 得到Mark Word结构
       assert (!mark->has_bias_pattern(), "invariant") ;
 
       // The mark can be in one of the following states:
@@ -1207,12 +1216,20 @@ ObjectMonitor * ATTR ObjectSynchronizer::inflate (Thread * Self, oop object) {
       // *  Neutral      - aggressively inflate the object.
       // *  BIASED       - Illegal.  We should never see this
 
+      //Mark Word可能有如下几种状态:
+      // *  Inflated(膨胀完成)     - just return
+      // *  Stack-locked(轻量级锁) - coerce it to inflated
+      // *  INFLATING(膨胀中)     - busy wait for conversion to complete
+      // *  Neutral(无锁)        - aggressively inflate the object.
+      // *  BIASED(偏向锁)       - Illegal.  We should never see this
+
       // CASE: inflated
-      if (mark->has_monitor()) {
+      if (mark->has_monitor()) { // 判断是不是重量级锁
           ObjectMonitor * inf = mark->monitor() ;
           assert (inf->header()->is_neutral(), "invariant");
           assert (inf->object() == object, "invariant") ;
           assert (ObjectSynchronizer::verify_objmon_isinpool(inf), "monitor is invalid");
+          // Mark->has_monitor()为true，说明已是重量级锁了，膨胀过程已经完成，返回
           return inf ;
       }
 
@@ -1222,10 +1239,10 @@ ObjectMonitor * ATTR ObjectSynchronizer::inflate (Thread * Self, oop object) {
       // The INFLATING value is transient.
       // Currently, we spin/yield/park and poll the markword, waiting for inflation to finish.
       // We could always eliminate polling by parking the thread on some auxiliary list.
-      if (mark == markOopDesc::INFLATING()) {
+      if (mark == markOopDesc::INFLATING()) { // 判断是否在膨胀
          TEVENT (Inflate: spin while INFLATING) ;
          ReadStableMark(object) ;
-         continue ;
+         continue ; // 若是正在膨胀，自旋等待膨胀完成
       }
 
       // CASE: stack-locked
@@ -1247,8 +1264,8 @@ ObjectMonitor * ATTR ObjectSynchronizer::inflate (Thread * Self, oop object) {
       // before or after the CAS(INFLATING) operation.
       // See the comments in omAlloc().
 
-      if (mark->has_locker()) {
-          ObjectMonitor * m = omAlloc (Self) ;
+      if (mark->has_locker()) { // 若是当前是轻量级锁
+          ObjectMonitor * m = omAlloc (Self) ; // 返回一个对象的内置ObjectMonitor对象
           // Optimistically prepare the objectmonitor - anticipate successful CAS
           // We do this before the CAS in order to minimize the length of time
           // in which INFLATING appears in the mark.
@@ -1256,12 +1273,12 @@ ObjectMonitor * ATTR ObjectSynchronizer::inflate (Thread * Self, oop object) {
           m->_Responsible  = NULL ;
           m->OwnerIsThread = 0 ;
           m->_recursions   = 0 ;
-          m->_SpinDuration = ObjectMonitor::Knob_SpinLimit ;   // Consider: maintain by type/class
-
+          m->_SpinDuration = ObjectMonitor::Knob_SpinLimit ;   // Consider: maintain by type/class // 设置自旋获取重量级锁的次数
+          // CAS操做标识Mark Word正在膨胀
           markOop cmp = (markOop) Atomic::cmpxchg_ptr (markOopDesc::INFLATING(), object->mark_addr(), mark) ;
           if (cmp != mark) {
              omRelease (Self, m, true) ;
-             continue ;       // Interference -- just retry
+             continue ;       // Interference -- just retry // 若是上述CAS操做失败，自旋等待膨胀完成
           }
 
           // We've successfully installed INFLATING (0) into the mark-word.
@@ -1305,7 +1322,7 @@ ObjectMonitor * ATTR ObjectSynchronizer::inflate (Thread * Self, oop object) {
           // m->OwnerIsThread = 1. Note that a thread can inflate an object
           // that it has stack-locked -- as might happen in wait() -- directly
           // with CAS.  That is, we can avoid the xchg-NULL .... ST idiom.
-          m->set_owner(mark->locker());
+          m->set_owner(mark->locker()); // 设置ObjectMonitor的_owner为拥有对象轻量级锁的线程，而不是当前正在inflate的线程
           m->set_object(object);
           // TODO-FIXME: assert BasicLock->dhw != 0.
 

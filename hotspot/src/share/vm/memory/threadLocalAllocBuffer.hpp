@@ -36,25 +36,57 @@ class GlobalTLABStats;
 //            It is thread-private at any time, but maybe multiplexed over
 //            time across multiple threads. The park()/unpark() pair is
 //            used to make it available for such multiplexing.
+
+// ThreadLocalAllocBuffer 是 HotSpot 虚拟机中的一个重要数据结构，用于在线程本地堆（Thread Local Heap）上快速分配对象，提高分配速度和效率。
+//
+// 线程本地堆是 HotSpot 虚拟机的一个特性，是指每个线程都有一个本地堆，用于分配较小的对象。
+// 对于小对象的分配，线程本地堆能够更快地完成内存分配和回收操作，避免了全局堆的锁竞争和内存碎片化问题，从而提高了系统的性能。
+
+// ThreadLocalAllocBuffer 是线程本地堆的内部实现，其中包含了一个指针 top，用于指向当前线程本地堆中可用的内存位置。
+// 当线程需要分配对象时，会从 top 指针处开始分配一段连续的内存，同时将 top 指针向后移动，指向下一块可用的内存位置。
+// 当 top 指针达到线程本地堆的边界时，ThreadLocalAllocBuffer 会申请一块新的内存区域，作为线程本地堆的扩展。
+
+// 需要注意的是，线程本地堆只用于分配较小的对象。对于较大的对象，仍然需要使用全局堆进行分配。
+// HotSpot 虚拟机根据对象的大小来选择在线程本地堆还是全局堆中进行内存分配，以充分利用两者的优点。
+
+// ThreadLocalAllocBuffer类中并没有专门用于释放内存的函数。因为它管理的是线程本地分配缓存（TLAB），它的生命周期是随着线程的生命周期而自动管理的。
+// 当线程被销毁时，其TLAB中的内存将会被自动释放，这是由JVM内部的垃圾回收机制完成的。
+
+// TLAB本身占用eEden区空间，在开启TLAB的情况下，虚拟机会为每个Java线程分配一块TLAB空间。
+// 参数-XX:+UseTLAB开启TLAB，默认是开启的。TLAB空间的内存非常小，缺省情况下仅占有整个Eden空间的1%，当然可以通过选项-XX:TLABWasteTargetPercent设置TLAB空间所占用Eden空间的百分比大小。
+
+// 由于TLAB空间一般不会很大，因此大对象无法在TLAB上进行分配，总是会直接分配在堆上。
+// TLAB空间由于比较小，因此很容易装满。比如，一个100K的空间，已经使用了80KB，当需要再分配一个30KB的对象时，肯定就无能为力了。
+// 这时虚拟机会有两种选择，第一，废弃当前TLAB，这样就会浪费20KB空间；第二，将这30KB的对象直接分配在堆上，保留当前的TLAB，
+// 这样可以希望将来有小于20KB的对象分配请求可以直接使用这块空间。实际上虚拟机内部会维护一个叫作refill_waste的值，
+// 当请求对象大于refill_waste时，会选择在堆中分配，若小于该值，则会废弃当前TLAB，新建TLAB来分配对象。
+// 这个阈值可以使用TLABRefillWasteFraction来调整，它表示TLAB中允许产生这种浪费的比例。默认值为64，即表示使用约为1/64的TLAB空间作为refill_waste。
+// 默认情况下，TLAB和refill_waste都会在运行时不断调整的，使系统的运行状态达到最优。如果想要禁用自动调整TLAB的大小，
+// 可以使用-XX:-ResizeTLAB禁用ResizeTLAB，并使用-XX:TLABSize手工指定一个TLAB的大小。
+
+// -XX:+PrintTLAB可以跟踪TLAB的使用情况。一般不建议手工修改TLAB相关参数，推荐使用虚拟机默认行为。
 class ThreadLocalAllocBuffer: public CHeapObj<mtThread> {
   friend class VMStructs;
 private:
-  HeapWord* _start;                              // address of TLAB
-  HeapWord* _top;                                // address after last allocation
-  HeapWord* _pf_top;                             // allocation prefetch watermark
-  HeapWord* _end;                                // allocation end (excluding alignment_reserve)
-  size_t    _desired_size;                       // desired size   (including alignment_reserve)
-  size_t    _refill_waste_limit;                 // hold onto tlab if free() is larger than this
+  // _start和_top属性用于跟踪已分配内存的位置，_desired_size和_refill_waste_limit属性用于控制TLAB的大小和重填行为，
+  // _gc_waste和_slow_allocations属性用于评估GC性能，_allocation_fraction属性用于跟踪Eden中分配给TLAB的比例。
 
-  static unsigned _target_refills;               // expected number of refills between GCs
+  HeapWord* _start;                              // address of TLAB                             // TLAB的起始地址
+  HeapWord* _top;                                // address after last allocation               // 当前未分配空间的顶部地址
+  HeapWord* _pf_top;                             // allocation prefetch watermark               // 预取分配的水印地址
+  HeapWord* _end;                                // allocation end (excluding alignment_reserve)// 当前分配空间的结尾地址
+  size_t    _desired_size;                       // desired size   (including alignment_reserve)// 所需的TLAB大小（包括对齐保留区域）
+  size_t    _refill_waste_limit;                 // hold onto tlab if free() is larger than this// 如果free（）大于此值，则保留TLAB
 
-  unsigned  _number_of_refills;
-  unsigned  _fast_refill_waste;
-  unsigned  _slow_refill_waste;
-  unsigned  _gc_waste;
-  unsigned  _slow_allocations;
+  static unsigned _target_refills;               // expected number of refills between GCs      // 预期在GC之间重新填充的次数
 
-  AdaptiveWeightedAverage _allocation_fraction;  // fraction of eden allocated in tlabs
+  unsigned  _number_of_refills;                                                                 // 已经重新填充的次数
+  unsigned  _fast_refill_waste;                                                                 // 快速重填的浪费字节数
+  unsigned  _slow_refill_waste;                                                                 // 慢速重填的浪费字节数
+  unsigned  _gc_waste;                                                                          // GC期间废弃的字节数
+  unsigned  _slow_allocations;                                                                  // 慢速分配的次数
+
+  AdaptiveWeightedAverage _allocation_fraction;  // fraction of eden allocated in tlabs         // Eden中分配给TLAB的比例
 
   void accumulate_statistics();
   void initialize_statistics();
@@ -119,6 +151,7 @@ public:
   size_t refill_waste_limit() const              { return _refill_waste_limit; }
 
   // Allocate size HeapWords. The memory is NOT initialized to zero.
+  // 用于分配指定大小的内存。
   inline HeapWord* allocate(size_t size);
 
   // Reserve space at the end of TLAB

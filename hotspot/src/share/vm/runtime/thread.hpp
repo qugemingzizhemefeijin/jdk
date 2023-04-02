@@ -101,6 +101,22 @@ class WorkerThread;
 //   - JavaThread
 //   - WatcherThread
 
+// OSThread、Thread、javaThread三者间关系
+
+// Java线程（Java Thread）是由Java虚拟机（JVM）创建和管理的，它是Java程序中最基本的执行单元。
+// Java线程和操作系统线程（OS Thread）是不同的概念。在HotSpot中，Java线程实际上是由JavaThread类表示的。
+// JavaThread类是Thread类的子类，它继承了Thread类的一些属性和方法，并添加了一些额外的属性和方法，用于实现Java线程的特性，
+// 如线程状态、调用栈、异常处理等。JavaThread类的实例代表了一个Java线程。
+
+// 而OSThread类则是一个抽象类，它封装了HotSpot对操作系统线程的抽象和管理，如线程ID、优先级、调度等。
+// JavaThread类包含了一个OSThread类的成员变量，用于表示Java线程所对应的操作系统线程。
+// Java线程和操作系统线程之间的关系是一对一的。每个Java线程都会有一个对应的操作系统线程来执行它的任务。
+// 因此，Java线程的生命周期受操作系统线程的调度和管理。
+
+// 在HotSpot中，JavaThread表示Java线程的特性，而OSThread表示操作系统线程的管理。
+// JavaThread包含了OSThread的引用，用于将Java线程和操作系统线程联系起来。
+// 同时，Thread类则是JavaThread类的父类，它封装了一些通用的线程属性和方法，如线程名称、优先级等。
+
 // 在HotSpot虚拟机中，Thread类是用于表示线程的实体。每个Java线程都会对应一个与之对应的Thread对象，
 // Thread对象内部包含了该线程的状态、调度优先级、执行栈、栈帧、持有的锁等信息。
 
@@ -544,7 +560,7 @@ public:
 
  protected:
   // OS data associated with the thread
-  OSThread* _osthread;  // Platform-specific thread information
+  OSThread* _osthread;  // Platform-specific thread information         // 映射的操作系统的线程对象
 
   // Thread local resource area for temporary allocation within the VM
   ResourceArea* _resource_area;
@@ -590,7 +606,7 @@ public:
 #ifdef ASSERT
  private:
   // Deadlock detection support for Mutex locks. List of locks own by thread.
-  Monitor* _owned_locks;
+  Monitor* _owned_locks;        // 当前线程持有的所有Java对象的Monitor
   // Mutex::set_owner_implementation is the only place where _owned_locks is modified,
   // thus the friendship
   friend class Mutex;
@@ -792,11 +808,25 @@ class CompilerThread;
 
 typedef void (*ThreadFunction)(JavaThread*, TRAPS);
 
+// JavaThread是Hotspot虚拟机中一个非常重要的类，它用于表示Java线程。JavaThread类是Thread类和OSThread类之间的桥梁，
+// 它包含了Java线程在运行时所需要的所有状态和信息。JavaThread继承了Thread类。
+//
+// JavaThread类是Hotspot虚拟机中非常重要的类，它管理了Java线程在运行时所需要的所有状态和信息。
+// Java线程的运行时状态、Java栈、持有的锁等信息都存储在JavaThread类中，是Java线程运行时的重要依据。
+//
+// JavaThread类的主要作用：
+//   1.管理Java线程的状态：JavaThread类中包含了Java线程的状态信息，例如线程是否处于运行状态、是否已经停止、是否等待中等。
+//     JavaThread类中的状态信息是Java线程运行时的重要依据。
+//   2.管理Java栈：JavaThread类中包含了Java栈的信息，例如Java栈的大小、当前栈帧指针等。
+//     JavaThread类中的Java栈信息用于管理Java线程的运行时堆栈。
+//   3.管理Java线程的锁：JavaThread类中包含了Java线程持有的锁信息，
+//     例如当前持有哪些锁、哪些锁处于等待状态等。JavaThread类中的锁信息用于管理Java线程的锁状态。
+//   4.管理Java线程的执行环境：JavaThread类中包含了Java线程的执行环境，例如Java虚拟机中线程的唯一标识符、线程的优先级、线程所属的线程组等。
 class JavaThread: public Thread {
   friend class VMStructs;
  private:
-  JavaThread*    _next;                          // The next thread in the Threads list
-  oop            _threadObj;                     // The Java level thread object
+  JavaThread*    _next;                          // The next thread in the Threads list // 下一个javaThread结点
+  oop            _threadObj;                     // The Java level thread object        // 指向Java线程对象的引用
 
 #ifdef ASSERT
  private:
@@ -820,7 +850,7 @@ class JavaThread: public Thread {
  private:  // restore original namespace restriction
 #endif
 
-  JavaFrameAnchor _anchor;                       // Encapsulation of current java frame and it state
+  JavaFrameAnchor _anchor;                       // Encapsulation of current java frame and it state // JavaThread的锚点，用于插入到全局线程列表中
 
   ThreadFunction _entry_point;
 
@@ -932,7 +962,7 @@ class JavaThread: public Thread {
   // code)
   volatile oop     _exception_oop;               // Exception thrown in compiled code
   volatile address _exception_pc;                // PC where exception happened
-  volatile address _exception_handler_pc;        // PC for handler of exception
+  volatile address _exception_handler_pc;        // PC for handler of exception // 用于指示当前异常处理程序的PC寄存器值
   volatile int     _is_method_handle_return;     // true (== 1) if the current exception PC is a MethodHandle call site.
 
   // support for JNI critical regions
@@ -943,7 +973,7 @@ class JavaThread: public Thread {
 
   // JVMTI PopFrame support
   // This is set to popframe_pending to signal that top Java frame should be popped immediately
-  int _popframe_condition;
+  int _popframe_condition;                       // 用于控制弹出帧的条件变量
 
 #ifndef PRODUCT
   int _jmp_ring_index;
@@ -1618,7 +1648,7 @@ public:
 
 
  private:
-  JvmtiThreadState *_jvmti_thread_state;
+  JvmtiThreadState *_jvmti_thread_state;                                // 线程状态信息，用于JVM工具接口
   JvmtiGetLoadedClassesClosure* _jvmti_get_loaded_classes_closure;
 
   // Used by the interpreter in fullspeed mode for frame pop, method
@@ -1892,13 +1922,23 @@ inline CompilerThread* CompilerThread::current() {
 
 // The active thread queue. It also keeps track of the current used
 // thread priorities.
+
+// Threads全局线程列表是指在Java虚拟机中，记录所有已创建的线程的数据结构列表，线程列表是通过链表的方式进行存储的。
+// 这个列表包含了所有正在运行的线程以及那些已经被创建但还没有被启动的线程。
+// 在Hotspot虚拟机中，这个列表被称为"Threads"，是一个静态成员变量，用于存储所有线程的Thread对象。
+// 每当一个线程被创建时，都会向这个列表中添加一个Thread对象；当一个线程结束时，它对应的Thread对象也会从列表中移除。
+// 全局线程列表的存在可以方便地对所有线程进行管理和监控。
+
+// JVM在执行垃圾收集、线程停顿、线程挂起等操作时，需要遍历全局线程列表来操作所有线程。
+// 在JVM启动时，JVM会初始化全局线程列表，并将JVM自身的主线程和其他启动时的线程添加到全局线程列表中。
+// 之后，当有新线程被创建或线程退出时，JVM会更新全局线程列表。
 class Threads: AllStatic {
   friend class VMStructs;
  private:
-  static JavaThread* _thread_list;
-  static int         _number_of_threads;
-  static int         _number_of_non_daemon_threads;
-  static int         _return_code;
+  static JavaThread* _thread_list;                  // 存储Java线程的双向链表的头指针，用于线程的添加和删除操作，以及对所有线程的遍历操作。
+  static int         _number_of_threads;            // 存储当前活跃的Java线程数量，用于监控和统计线程数量。
+  static int         _number_of_non_daemon_threads; // 存储当前活跃的非守护线程数量，用于监控和统计非守护线程数量。
+  static int         _return_code;                  // 存储Java虚拟机的退出码，用于记录Java虚拟机的退出状态。
 #ifdef ASSERT
   static bool        _vm_complete;
 #endif
@@ -1907,7 +1947,16 @@ class Threads: AllStatic {
   // Thread management
   // force_daemon is a concession to JNI, where we may need to add a
   // thread to the thread list before allocating its thread object
+  // 线程列表是通过简单的链表来实现的，它使用了Threads_lock来保证线程列表的线程安全。
   static void add(JavaThread* p, bool force_daemon = false);
+
+  // remove函数实现了从全局线程列表中移除指定的JavaThread对象，并进行一些清理工作。具体来说：
+  // 1.在使用线程的过程中，Java线程会持有一些对象的监视器锁，这些锁会被存储在对象监视器锁列表omInUseList中。
+  //   这些锁在Java线程退出时需要被释放，因此在函数开头调用ObjectSynchronizer::omFlush(p)函数对omInUseList和omFreeList进行清理。
+  // 2.在Threads_lock互斥锁的保护下，从全局线程列表_thread_list中删除JavaThread对象p，并更新线程统计数据。
+  // 3.调用ThreadService::remove_thread(p, daemon)将该JavaThread对象从ThreadService中移除。
+  // 4.将该JavaThread对象的状态设置为已终止状态，以便在safepoint时忽略该线程。这是因为该线程可能已经释放了一些锁，从而在safepoint期间导致死锁。
+  // 5.最后调用Events::log记录该JavaThread对象的退出事件。
   static void remove(JavaThread* p);
   static bool includes(JavaThread* p);
   static JavaThread* first()                     { return _thread_list; }

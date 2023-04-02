@@ -4063,14 +4063,17 @@ jboolean Threads::is_supported_jni_version(jint version) {
 
 
 void Threads::add(JavaThread* p, bool force_daemon) {
+  // 在调用该函数之前，需要持有 Threads_lock 锁，保证线程安全。
   // The threads lock must be owned at this point
   assert_locked_or_safepoint(Threads_lock);
 
   // See the comment for this method in thread.hpp for its purpose and
   // why it is called here.
   p->initialize_queues();
+  // 将当前 JavaThread 对象添加到全局线程列表中，并更新线程列表头指针。
   p->set_next(_thread_list);
   _thread_list = p;
+  // 维护全局线程数量和非守护线程数量的计数器。
   _number_of_threads++;
   oop threadObj = p->threadObj();
   bool daemon = true;
@@ -4082,13 +4085,14 @@ void Threads::add(JavaThread* p, bool force_daemon) {
   }
 
   p->set_safepoint_visible(true);
-
+  // 调用 ThreadService::add_thread 方法，将线程添加到线程服务中。
   ThreadService::add_thread(p, daemon);
 
-  // Possible GC point.
+  // Possible GC point. 记录日志，表示添加线程成功。
   Events::log(p, "Thread added: " INTPTR_FORMAT, p);
 }
 
+// 从全局线程列表中移除指定的JavaThread对象，并进行一些清理工作。
 void Threads::remove(JavaThread* p) {
   // Extra scope needed for Thread_lock, so we can check
   // that we do not remove thread without safepoint code notice
@@ -4121,6 +4125,7 @@ void Threads::remove(JavaThread* p) {
       if (number_of_non_daemon_threads() == 1)
         Threads_lock->notify_all();
     }
+    // 将该JavaThread对象从ThreadService中移除。
     ThreadService::remove_thread(p, daemon);
 
     // Make sure that safepoint code disregard this thread. This is needed since
@@ -4130,6 +4135,8 @@ void Threads::remove(JavaThread* p) {
     p->set_terminated_value();
 
     // Now, this thread is not visible to safepoint
+    // 将该JavaThread对象的状态设置为已终止状态，以便在safepoint时忽略该线程。
+    // 这是因为该线程可能已经释放了一些锁，从而在safepoint期间导致死锁。
     p->set_safepoint_visible(false);
     // once the thread becomes safepoint invisible, we can not use its per-thread
     // recorder. And Threads::do_threads() no longer walks this thread, so we have
@@ -4138,6 +4145,7 @@ void Threads::remove(JavaThread* p) {
   } // unlock Threads_lock
 
   // Since Events::log uses a lock, we grab it outside the Threads_lock
+  // 记录该JavaThread对象的退出事件
   Events::log(p, "Thread exited: " INTPTR_FORMAT, p);
 }
 
