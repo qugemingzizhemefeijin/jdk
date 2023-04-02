@@ -258,10 +258,10 @@ InstanceKlass::InstanceKlass(int vtable_len,
                              AccessFlags access_flags,
                              bool is_anonymous) {
   No_Safepoint_Verifier no_safepoint; // until k becomes parsable
-
+  // 计算创建InstanceKlass实例需要占用的内存空间
   int iksize = InstanceKlass::size(vtable_len, itable_len, nonstatic_oop_map_size,
                                    access_flags.is_interface(), is_anonymous);
-
+  // 在创建的InstanceKlass实例中保存Class文件解析的部分结果
   set_vtable_length(vtable_len);
   set_itable_length(itable_len);
   set_static_field_size(static_field_size);
@@ -289,7 +289,7 @@ InstanceKlass::InstanceKlass(int vtable_len,
   set_static_oop_field_count(0);
   set_nonstatic_field_size(0);
   set_is_marked_dependent(false);
-  set_init_state(InstanceKlass::allocated);
+  set_init_state(InstanceKlass::allocated); // 设置类的状态为已分配
   set_init_thread(NULL);
   set_reference_type(rt);
   set_oop_map_cache(NULL);
@@ -311,6 +311,7 @@ InstanceKlass::InstanceKlass(int vtable_len,
   NOT_PRODUCT(_verify_count = 0;)
 
   // initialize the non-header words to zero
+  // 初始化InstanceKlass实例，除header之外都为0
   intptr_t* p = (intptr_t*)this;
   for (int index = InstanceKlass::header_size(); index < iksize; index++) {
     p[index] = NULL_WORD;
@@ -1340,7 +1341,7 @@ void InstanceKlass::do_local_static_fields(FieldClosure* cl) {
   }
 }
 
-
+// 传递的f是initialize_static_field()函数指针
 void InstanceKlass::do_local_static_fields(void f(fieldDescriptor*, TRAPS), TRAPS) {
   instanceKlassHandle h_this(THREAD, this);
   do_local_static_fields_impl(h_this, f, CHECK);
@@ -1348,7 +1349,9 @@ void InstanceKlass::do_local_static_fields(void f(fieldDescriptor*, TRAPS), TRAP
 
 
 void InstanceKlass::do_local_static_fields_impl(instanceKlassHandle this_oop, void f(fieldDescriptor* fd, TRAPS), TRAPS) {
+  // 通过JavaFieldStream提供的方法迭代遍历InstanceKlass实例中声明的所有字段
   for (JavaFieldStream fs(this_oop()); !fs.done(); fs.next()) {
+    // 只处理静态字段， 因为只有静态字段的值会保存到java.lang.Class对象中
     if (fs.access_flags().is_static()) {
       fieldDescriptor& fd = fs.field_descriptor();
       f(&fd, CHECK);

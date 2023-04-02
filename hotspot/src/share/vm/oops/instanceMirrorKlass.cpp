@@ -360,8 +360,10 @@ int InstanceMirrorKlass::instance_size(KlassHandle k) {
 
 instanceOop InstanceMirrorKlass::allocate_instance(KlassHandle k, TRAPS) {
   // Query before forming handle.
+  // 计算实例需要占用的内存大小
   int size = instance_size(k);
   KlassHandle h_k(THREAD, this);
+  // 分配内存，创建oop对象
   instanceOop i = (instanceOop) CollectedHeap::Class_obj_allocate(h_k, size, k, CHECK_NULL);
   return i;
 }

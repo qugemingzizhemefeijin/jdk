@@ -559,24 +559,34 @@ void CollectedHeap::post_full_gc_dump(GCTimer* timer) {
   }
 }
 
+// 创建表示java.lang.Class对象的oop实例后， 将其设置为InstanceKlass实例的_java_mirror属性，
+// 同时设置oop实例的偏移位置为_klass_offset处存储的指向InstanceKlass实例的指针。
+
+// klass是操作InstanceMirrorKlass实例的句柄，而real_klass是操作InstanceKlass实例的句柄。
+// 调用CollectedHeap::Class_obj_allocate()函数可以创建real_klass的oop实例（java.lang.Class对象）
 oop CollectedHeap::Class_obj_allocate(KlassHandle klass, int size, KlassHandle real_klass, TRAPS) {
   debug_only(check_for_valid_allocation_state());
   assert(!Universe::heap()->is_gc_active(), "Allocation during gc not allowed");
   assert(size >= 0, "int won't convert to size_t");
   HeapWord* obj;
-    assert(ScavengeRootsInCode > 0, "must be");
-    obj = common_mem_allocate_init(real_klass, size, CHECK_NULL);
+  assert(ScavengeRootsInCode > 0, "must be");
+  // 在Java堆中为oop实例分配内存并初始化为0
+  obj = common_mem_allocate_init(real_klass, size, CHECK_NULL);
+  // 初始化oop实例的对象头
   post_allocation_setup_common(klass, obj);
   assert(Universe::is_bootstrapping() ||
          !((oop)obj)->is_array(), "must not be an array");
   NOT_PRODUCT(Universe::heap()->check_for_bad_heap_word_value(obj, size));
   oop mirror = (oop)obj;
-
+  // 在oop实例中的偏移位置为_oop_size_offset处保存当前实例的大小
   java_lang_Class::set_oop_size(mirror, size);
 
   // Setup indirections
+  // oop实例和InstanceKlass实例之间可以通过属性或偏移相互引用
   if (!real_klass.is_null()) {
+    // 在oop实例的某个偏移位置存放指定InstanceKlass的指针
     java_lang_Class::set_klass(mirror, real_klass());
+    // InstanceKlass实例中的_java_mirror属性保存指向oop实例的指针
     real_klass->set_java_mirror(mirror);
   }
 

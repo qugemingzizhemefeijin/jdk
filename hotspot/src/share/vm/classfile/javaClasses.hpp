@@ -240,6 +240,7 @@ class java_lang_Class : AllStatic {
   static void compute_offsets();
 
   // Instance creation
+  // 创建Java.Lang.Class对象对应JVM中的oop对象实例
   static oop  create_mirror(KlassHandle k, Handle protection_domain, TRAPS);
   static void fixup_mirror(KlassHandle k, TRAPS);
   static oop  create_basic_type_mirror(const char* basic_type_name, BasicType type, TRAPS);

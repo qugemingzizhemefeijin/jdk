@@ -63,6 +63,7 @@ void* MetaspaceObj::operator new(size_t size, ClassLoaderData* loader_data,
                                  size_t word_size, bool read_only,
                                  MetaspaceObj::Type type, TRAPS) throw() {
   // Klass has it's own operator new
+  // 在元数据区为实例分配内存空间
   return Metaspace::allocate(loader_data, word_size, read_only,
                              type, CHECK_NULL);
 }

@@ -313,6 +313,7 @@ class CollectedHeap : public CHeapObj<mtInternal> {
   virtual void set_par_threads(uint t) { _n_par_threads = t; };
 
   // Allocate and initialize instances of Class
+  // 申请内存，并初始化Class对应的oop实例
   static oop Class_obj_allocate(KlassHandle klass, int size, KlassHandle real_klass, TRAPS);
 
   // General obj/array allocation facilities.

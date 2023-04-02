@@ -86,9 +86,9 @@ class ConstantPool : public Metadata {
   friend class BytecodeInterpreter;  // Directly extracts an oop in the pool for fast instanceof/checkcast
   friend class Universe;             // For null constructor
  private:
-  Array<u1>*           _tags;        // the tag array describing the constant pool's contents
+  Array<u1>*           _tags;        // the tag array describing the constant pool's contents   // 每个常量池项的类型
   ConstantPoolCache*   _cache;       // the cache holding interpreter runtime information
-  InstanceKlass*       _pool_holder; // the corresponding class
+  InstanceKlass*       _pool_holder; // the corresponding class                                 // 拥有当前常量池的类
   Array<u2>*           _operands;    // for variable-sized (InvokeDynamic) nodes, usually empty
 
   // Array of resolved objects from the constant pool and map from resolved
@@ -102,7 +102,7 @@ class ConstantPool : public Metadata {
   };
 
   int                  _flags;  // old fashioned bit twiddling
-  int                  _length; // number of elements in the array
+  int                  _length; // number of elements in the array                              // 常量池中含有的常量池项总数
 
   union {
     // set for CDS to restore resolved references
@@ -123,6 +123,7 @@ class ConstantPool : public Metadata {
   void set_flags(int f)                        { _flags = f; }
 
  private:
+  // this指针指向当前ConstantPool实例在内存中的首地址，加上ConstantPool类本身需要占用的内存大小的值之后，指针指向了常量池的数据区。
   intptr_t* base() const { return (intptr_t*) (((char*) this) + sizeof(ConstantPool)); }
 
   CPSlot slot_at(int which) {
@@ -166,6 +167,7 @@ class ConstantPool : public Metadata {
   ConstantPool(Array<u1>* tags);
   ConstantPool() { assert(DumpSharedSpaces || UseSharedSpaces, "only for CDS"); }
  public:
+  // 申请内存并创建常量池实例
   static ConstantPool* allocate(ClassLoaderData* loader_data, int length, TRAPS);
 
   bool is_constantPool() const volatile     { return true; }
@@ -362,6 +364,7 @@ class ConstantPool : public Metadata {
   }
 
   // This method should only be used with a cpool lock or during parsing or gc
+  // 获取常量池字符引用
   Symbol* unresolved_klass_at(int which) {     // Temporary until actual use
     Symbol* s = CPSlot((Symbol*)OrderAccess::load_ptr_acquire(obj_at_addr_raw(which))).get_symbol();
     // check that the klass is still unresolved.
@@ -737,6 +740,7 @@ class ConstantPool : public Metadata {
 
   // Sizing (in words)
   static int header_size()             { return sizeof(ConstantPool)/HeapWordSize; }
+  // 计算常量池的大小，ConstantPool实例的内存布局其实就是ConstantPool本身占用的内存大小加上length个指针长度
   static int size(int length)          { return align_object_size(header_size() + length); }
   int size() const                     { return size(length()); }
 #if INCLUDE_SERVICES

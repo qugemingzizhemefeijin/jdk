@@ -48,11 +48,16 @@
 // The caller is responsible for deallocating the buffer and for using
 // ResourceMarks appropriately when constructing streams.
 
+// 用于读取Class文件对应的字节流
+// ClassFileStream类的内部保存了指向Class文件字节流的_current指针，通过_current指针可以读取整个Class文件的内容。
+
+// hotspot/src/cpu/x86/vm/bytes_x86.hpp
+// 多字节数据项总是按照Big-Endian的顺序进行存储，而x86等处理器则使用相反的Little-Endian顺序存储数据。因此，在x86架构下需要进行转换。
 class ClassFileStream: public ResourceObj {
  private:
-  u1*   _buffer_start; // Buffer bottom
-  u1*   _buffer_end;   // Buffer top (one past last element)
-  u1*   _current;      // Current buffer position
+  u1*   _buffer_start; // Buffer bottom                                             // 指向流的第一个字符位置
+  u1*   _buffer_end;   // Buffer top (one past last element)                        // 指向流的最后一个字符的下一个位置
+  u1*   _current;      // Current buffer position                                   // 当前读取的字符位置
   char* _source;       // Source of stream (directory name, ZIP/JAR archive name)
   bool  _need_verify;  // True if verification is on for the class file
 

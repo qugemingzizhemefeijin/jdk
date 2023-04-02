@@ -45,7 +45,7 @@
 ConstantPool* ConstantPool::allocate(ClassLoaderData* loader_data, int length, TRAPS) {
   // Tags are RW but comment below applies to tags also.
   Array<u1>* tags = MetadataFactory::new_writeable_array<u1>(loader_data, length, 0, CHECK_NULL);
-
+  // 计算创建ConstantPool实例所需要分配的内存大小
   int size = ConstantPool::size(length);
 
   // CDS considerations:
@@ -57,6 +57,8 @@ ConstantPool* ConstantPool::allocate(ClassLoaderData* loader_data, int length, T
   return new (loader_data, size, false, MetaspaceObj::ConstantPoolType, THREAD) ConstantPool(tags);
 }
 
+// 构造函数，初始化tags、_length及_lock等属性，调用tags->length()获取的值就是常量池项的数量，因此_length属性保存的是常量池项的数量。
+// tags数组中的元素值都被初始化为JVM_CONSTANT_Invalid。
 ConstantPool::ConstantPool(Array<u1>* tags) {
   set_length(tags->length());
   set_tags(NULL);
@@ -186,6 +188,7 @@ Klass* ConstantPool::klass_at_impl(constantPoolHandle this_oop, int which, TRAPS
   if (entry.is_resolved()) {
     assert(entry.get_klass()->is_klass(), "must be");
     // Already resolved - return entry.
+    // 如果槽位上存储的是指向Klass实例的指针，则直接返回即可
     return entry.get_klass();
   }
 
@@ -230,6 +233,9 @@ Klass* ConstantPool::klass_at_impl(constantPoolHandle this_oop, int which, TRAPS
     // this_oop must be unlocked during resolve_or_fail
     oop protection_domain = this_oop->pool_holder()->protection_domain();
     Handle h_prot (THREAD, protection_domain);
+    // 调用如下函数获取Klass实例
+    // 首先会从系统字典中查找对应的Klass实例，如果找不到，加载并解析类，最终会生成一个Klass实例并返回。
+    // 获取Klass实例后，调用klass_at_put()函数更新常量池槽上的值为指向Klass实例的指针即可。
     Klass* k_oop = SystemDictionary::resolve_or_fail(name, loader, h_prot, true, THREAD);
     KlassHandle k;
     if (!HAS_PENDING_EXCEPTION) {
@@ -322,6 +328,7 @@ Klass* ConstantPool::klass_at_impl(constantPoolHandle this_oop, int which, TRAPS
       if (do_resolve) {
         ClassLoaderData* this_key = this_oop->pool_holder()->class_loader_data();
         this_key->record_dependency(k(), CHECK_NULL); // Can throw OOM
+        // 更新常量池中槽上的值， 将原来指向Symbol实例的指针改写为指向Klass实例的指针
         this_oop->klass_at_put(which, k());
       }
     }
@@ -522,13 +529,13 @@ Symbol* ConstantPool::klass_name_at(int which) {
   // It is not safe to rely on the tag bit's here, since we don't have a lock, and the entry and
   // tag is not updated atomicly.
   CPSlot entry = slot_at(which);
-  if (entry.is_resolved()) {
+  if (entry.is_resolved()) { // 已经连接时， 获取指向InstanceKlass实例的指针
     // Already resolved - return entry's name.
     assert(entry.get_klass()->is_klass(), "must be");
     return entry.get_klass()->name();
   } else {
     assert(entry.is_unresolved(), "must be either symbol or klass");
-    return entry.get_symbol();
+    return entry.get_symbol(); // 未连接时， 获取指向Symbol实例的指针
   }
 }
 

@@ -482,9 +482,11 @@ void java_lang_String::print(Handle java_string, outputStream* st) {
   }
 }
 
+// 初始化类的静态字段
 static void initialize_static_field(fieldDescriptor* fd, TRAPS) {
   Handle mirror (THREAD, fd->field_holder()->java_mirror());
   assert(mirror.not_null() && fd->is_static(), "just checking");
+  // 如果静态字段有初始值，则将此值保存到oop实例中对应的存储静态字段的槽位上
   if (fd->has_initial_value()) {
     BasicType t = fd->field_type();
     switch (t) {
@@ -563,8 +565,12 @@ oop java_lang_Class::create_mirror(KlassHandle k, Handle protection_domain, TRAP
   // the mirror.
   if (SystemDictionary::Class_klass_loaded()) {
     // Allocate mirror (java.lang.Class instance)
+    // allocate_instance()函数会计算oop实例所占用的内存大小，然后分配内存空间最后创建oop实例，
+    // 不过在分配内存空间时，会考虑静态变量，所以说Java类的静态变量存储在java.lang.Class对象中
+    // 创建表示java.lang.Class的oop实例
     Handle mirror = InstanceMirrorKlass::cast(SystemDictionary::Class_klass())->allocate_instance(k, CHECK_0);
 
+    // mirror是instanceOop实例，调用mirror->klass()可以获取指向InstanceMirrorKlass实例的指针
     InstanceMirrorKlass* mk = InstanceMirrorKlass::cast(mirror->klass());
     java_lang_Class::set_static_oop_field_count(mirror(), mk->compute_static_oop_field_count(mirror()));
 
@@ -573,15 +579,16 @@ oop java_lang_Class::create_mirror(KlassHandle k, Handle protection_domain, TRAP
     // 当k为ObjArrayKlass实例时，获取的是组件类型的_java_mirror属性值。
     if (k->oop_is_array()) {
       Handle comp_mirror;
-      if (k->oop_is_typeArray()) {
+      if (k->oop_is_typeArray()) { // 基本类型数组
         BasicType type = TypeArrayKlass::cast(k())->element_type();
-        // 从Universe::java_mirror()函数获取对应类型type的mirror值；
+        // 从Universe::java_mirror()函数获取对应类型type的mirror值；oop转换为Handle类型， 会调用转换构造函数
         comp_mirror = Universe::java_mirror(type);
-      } else {
+      } else { // 对象类型数组
         assert(k->oop_is_objArray(), "Must be");
         Klass* element_klass = ObjArrayKlass::cast(k())->element_klass();
         assert(element_klass != NULL, "Must have an element klass");
-          comp_mirror = element_klass->java_mirror();
+        // oop转换为Handle类型， 会调用转换构造函数
+        comp_mirror = element_klass->java_mirror();
       }
       assert(comp_mirror.not_null(), "must have a mirror");
 
@@ -603,6 +610,8 @@ oop java_lang_Class::create_mirror(KlassHandle k, Handle protection_domain, TRAP
       set_protection_domain(mirror(), protection_domain());
 
       // Initialize static fields
+      // do_local_static_fields()函数会对静态字段进行初始化
+      // 注意此时传入的是initialize_static_field()函数指针
       // 初始化本地静态字段的值， 静态字段存储在java.lang.Class对象中
       InstanceKlass::cast(k())->do_local_static_fields(&initialize_static_field, CHECK_NULL);
     }

@@ -95,7 +95,7 @@ class InstanceMirrorKlass: public InstanceKlass {
   // Given a Klass return the size of the instance
   int instance_size(KlassHandle k);
 
-  // allocation
+  // allocation 计算class oop实例所占用的内存大小，然后分配类型最后创建oop实例
   instanceOop allocate_instance(KlassHandle k, TRAPS);
 
   // Garbage collection

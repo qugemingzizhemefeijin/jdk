@@ -887,6 +887,7 @@ class InstanceKlass: public Klass {
   // Iterators
   void do_local_static_fields(FieldClosure* cl);
   void do_nonstatic_fields(FieldClosure* cl); // including inherited fields
+  // 将静态变量存储到oop实例中，数组类不需要调用此方法
   void do_local_static_fields(void f(fieldDescriptor*, TRAPS), TRAPS);
 
   void methods_do(void f(Method* method));

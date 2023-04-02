@@ -41,14 +41,18 @@ class FieldLayoutInfo;
 //
 // The bytes describing the class file structure is read from a Stream object
 
+// HotSpot VM定义了ClassFileParser类辅助读取及保存类解析的相关信息。
+
+// 在类解析的过程中，解析出的信息会暂时保存在ClassFileParser实例的相关变量中，最后会创建InstanceKlass实例保存这些信息，
+// 然后将InstanceKlass实例放入字典中，在保证唯一性的同时也提高了查询效率。
 class ClassFileParser VALUE_OBJ_CLASS_SPEC {
  private:
   bool _need_verify;
   bool _relax_verify;
-  u2   _major_version;
-  u2   _minor_version;
-  Symbol* _class_name;
-  ClassLoaderData* _loader_data;
+  u2   _major_version;                  // 类的主版本号
+  u2   _minor_version;                  // 类的次版本号
+  Symbol* _class_name;                  // 类名称
+  ClassLoaderData* _loader_data;        // 加载类的类加载器
   KlassHandle _host_klass;
   GrowableArray<Handle>* _cp_patches; // overrides for CP entries
 
@@ -68,18 +72,18 @@ class ClassFileParser VALUE_OBJ_CLASS_SPEC {
   // Metadata created before the instance klass is created.  Must be deallocated
   // if not transferred to the InstanceKlass upon successful class loading
   // in which case these pointers have been set to NULL.
-  instanceKlassHandle _super_klass;
-  ConstantPool*    _cp;
-  Array<u2>*       _fields;
-  Array<Method*>*  _methods;
-  Array<u2>*       _inner_classes;
-  Array<Klass*>*   _local_interfaces;
-  Array<Klass*>*   _transitive_interfaces;
+  instanceKlassHandle _super_klass;     // 父类
+  ConstantPool*    _cp;                 // 常量池引用
+  Array<u2>*       _fields;             // 类中定义的变量
+  Array<Method*>*  _methods;            // 类中定义的方法
+  Array<u2>*       _inner_classes;      // 内部类
+  Array<Klass*>*   _local_interfaces;   // 直接实现的接口
+  Array<Klass*>*   _transitive_interfaces;  // 实现的所有接口（包括直接和间接实现的接口）
   AnnotationArray* _annotations;
   AnnotationArray* _type_annotations;
   Array<AnnotationArray*>* _fields_annotations;
   Array<AnnotationArray*>* _fields_type_annotations;
-  InstanceKlass*   _klass;  // InstanceKlass once created.
+  InstanceKlass*   _klass;  // InstanceKlass once created.  // 表示类的InstanceKlass实例，类最终解析的结果会存储到该实例中
 
   void set_class_synthetic_flag(bool x)        { _synthetic_flag = x; }
   void set_class_sourcefile_index(u2 x)        { _sourcefile_index = x; }
@@ -197,7 +201,7 @@ class ClassFileParser VALUE_OBJ_CLASS_SPEC {
   enum { fixed_buffer_size = 128 };
   u_char linenumbertable_buffer[fixed_buffer_size];
 
-  ClassFileStream* _stream;              // Actual input stream
+  ClassFileStream* _stream;              // Actual input stream // Class文件对应的字节流， 从字节流中读取信息并解析
 
   enum { LegalClass, LegalField, LegalMethod }; // used to verify unqualified names
 
@@ -205,12 +209,13 @@ class ClassFileParser VALUE_OBJ_CLASS_SPEC {
   ClassFileStream* stream()                        { return _stream; }
   void set_stream(ClassFileStream* st)             { _stream = st; }
 
-  // Constant pool parsing
+  // Constant pool parsing // 解析常量池项
   void parse_constant_pool_entries(int length, TRAPS);
 
+  // 常量池解析
   constantPoolHandle parse_constant_pool(TRAPS);
 
-  // Interface parsing
+  // Interface parsing // 解析当前类实现的接口
   Array<Klass*>* parse_interfaces(int length,
                                   Handle protection_domain,
                                   Symbol* class_name,
@@ -218,6 +223,7 @@ class ClassFileParser VALUE_OBJ_CLASS_SPEC {
                                   TRAPS);
   void record_defined_class_dependencies(instanceKlassHandle defined_klass, TRAPS);
 
+  // 解析父类
   instanceKlassHandle parse_super_class(int super_class_index, TRAPS);
   // Field parsing
   void parse_field_attributes(u2 attributes_count,
@@ -273,6 +279,7 @@ class ClassFileParser VALUE_OBJ_CLASS_SPEC {
                                                u2 enclosing_method_class_index,
                                                u2 enclosing_method_method_index,
                                                TRAPS);
+  // 解析类属性
   void parse_classfile_attributes(ClassAnnotationCollector* parsed_annotations,
                                   TRAPS);
   void parse_classfile_synthetic_attribute(TRAPS);
@@ -467,6 +474,7 @@ class ClassFileParser VALUE_OBJ_CLASS_SPEC {
     KlassHandle no_host_klass;
     return parseClassFile(name, loader_data, protection_domain, no_host_klass, NULL, parsed_name, verify, THREAD);
   }
+  // 解析Class文件信息
   instanceKlassHandle parseClassFile(Symbol* name,
                                      ClassLoaderData* loader_data,
                                      Handle protection_domain,
