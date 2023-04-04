@@ -57,47 +57,52 @@ class G1CollectorPolicy;
 class GCPolicyCounters;
 class MarkSweepPolicy;
 
+// 该类及其子类用于定义垃圾回收器使用的全局属性，并初始化分代内存及其他共享资源。
 class CollectorPolicy : public CHeapObj<mtGC> {
  protected:
   GCPolicyCounters* _gc_policy_counters;
 
   virtual void initialize_alignments() = 0;
+  // 参数校验等
   virtual void initialize_flags();
   virtual void initialize_size_info();
 
   DEBUG_ONLY(virtual void assert_flags();)
   DEBUG_ONLY(virtual void assert_size_info();)
 
-  size_t _initial_heap_byte_size;
-  size_t _max_heap_byte_size;
-  size_t _min_heap_byte_size;
+  size_t _initial_heap_byte_size;                                           // 初始堆内存
+  size_t _max_heap_byte_size;                                               // 最大堆内存
+  size_t _min_heap_byte_size;                                               // 最小堆内存
 
-  size_t _space_alignment;
-  size_t _heap_alignment;
+  size_t _space_alignment;                                                  // space分配粒度
+  size_t _heap_alignment;                                                   // heap分配粒度，_heap_alignment必须大于_space_alignment，且是_space_alignment的整数倍
 
   // Needed to keep information if MaxHeapSize was set on the command line
   // when the flag value is aligned etc by ergonomics
-  bool _max_heap_size_cmdline;
+  bool _max_heap_size_cmdline;                                              // 是否通过命令行参数设置了最大堆内存
 
   // The sizing of the heap are controlled by a sizing policy.
-  AdaptiveSizePolicy* _size_policy;
+  AdaptiveSizePolicy* _size_policy;                                         // 用来自适应调整堆内存大小的策略实现
 
   // Set to true when policy wants soft refs cleared.
   // Reset to false by gc after it clears all soft refs.
-  bool _should_clear_all_soft_refs;
+  bool _should_clear_all_soft_refs;                                         // 是否需要清除所有的软引用，当软引用清除结束，垃圾回收器会将其置为false
 
   // Set to true by the GC if the just-completed gc cleared all
   // softrefs.  This is set to true whenever a gc clears all softrefs, and
   // set to false each time gc returns to the mutator.  For example, in the
   // ParallelScavengeHeap case the latter would be done toward the end of
   // mem_allocate() where it returns op.result()
-  bool _all_soft_refs_clear;
+  bool _all_soft_refs_clear;                                                // 当GC刚清除完所有的软引用时会设置该属性为true，当返回mutator时被设置成false
 
+  // 构造函数
   CollectorPolicy();
 
  public:
   virtual void initialize_all() {
+    // 用来初始化分代内存及内存分配相关属性的，没有默认实现
     initialize_alignments();
+    // 主要用于校验参数的合法性，并设置相关参数
     initialize_flags();
     initialize_size_info();
   }
@@ -176,6 +181,7 @@ class CollectorPolicy : public CHeapObj<mtGC> {
   virtual HeapWord *satisfy_failed_allocation(size_t size, bool is_tlab) = 0;
   // This method controls how a collector handles a metadata allocation
   // failure.
+  // 当Metaspace分配内存失败后调用的，用来清理Metaspace空间并尝试重新分配的
   virtual MetaWord* satisfy_failed_metadata_allocation(ClassLoaderData* loader_data,
                                                        size_t size,
                                                        Metaspace::MetadataType mdtype);
@@ -219,23 +225,26 @@ class ClearedAllSoftRefs : public StackObj {
   }
 };
 
+// GenCollectorPolicy继承自CollectorPolicy，表示分代内存使用的CollectorPolicy
 class GenCollectorPolicy : public CollectorPolicy {
  protected:
-  size_t _min_gen0_size;
-  size_t _initial_gen0_size;
-  size_t _max_gen0_size;
+  size_t _min_gen0_size;            // gen0的内存最小值
+  size_t _initial_gen0_size;        // gen0的内存初始值
+  size_t _max_gen0_size;            // gen0的内存最大值
 
   // _gen_alignment and _space_alignment will have the same value most of the
   // time. When using large pages they can differ.
-  size_t _gen_alignment;
+  size_t _gen_alignment;            // 分代内存分配粒度，_gen_alignment必须被_space_alignment整除，- _heap_alignment被_gen_alignment整除
 
-  GenerationSpec **_generations;
+  GenerationSpec **_generations;    // 一种特殊的Generation实现
 
   // Return true if an allocation should be attempted in the older
   // generation if it fails in the younger generation.  Return
   // false, otherwise.
+  // 如果在年轻一代中失败，则应在老一代中尝试分配，则返回 true。 否则返回 false。
   virtual bool should_try_older_generation_allocation(size_t word_size) const;
 
+  // 参数合法性校验
   void initialize_flags();
   void initialize_size_info();
 
@@ -281,8 +290,10 @@ class GenCollectorPolicy : public CollectorPolicy {
     initialize_generations();
   }
 
+  // 返回年轻代的内存最小值
   size_t young_gen_size_lower_bound();
 
+  // 用于从Java堆中分配指定大小的内存块，并在必要时触发GC
   HeapWord* mem_allocate_work(size_t size,
                               bool is_tlab,
                               bool* gc_overhead_limit_was_exceeded);
