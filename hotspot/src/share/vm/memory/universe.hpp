@@ -97,6 +97,8 @@ enum VerifyOption {
       VerifyOption_G1UseMarkWord    = VerifyOption_G1UseNextMarking + 1
 };
 
+// 用来保存JVM中重要的系统类及其实例，如基础类型数组的Klass，用来提供对分配Java对象的CollectedHeap的访问入口，提供多种对象分配的方法。
+// Universe定义的属性和对外提供的方法都是static的。
 class Universe: AllStatic {
   // Ugh.  Universe is much too friendly.
   friend class MarkSweep;
@@ -108,7 +110,11 @@ class Universe: AllStatic {
   friend class VM_PopulateDumpSharedSpace;
   friend class Metaspace;
 
+  // JVM启动时在 init_globals() 方法中依次调用下面的三个方法。 hotspot/src/share/vm/runtime/init.cpp 93行
+
+  // 执行依赖于 codeCache_init 和 stubRoutines_init 方法的成功执行，是最先被调用的universe初始化方法，主要用来初始化collectedHeap，Metaspace和TLAB等组件。
   friend jint  universe_init();
+  // universe2_init方法是在universe_init方法执行完成后调用的，用来初始化基本类型的数组Klass，vmSymbols，SystemDictionary，JDK_Version等组件。
   friend void  universe2_init();
   friend bool  universe_post_init();
 
@@ -145,10 +151,15 @@ class Universe: AllStatic {
   static objArrayOop  _the_empty_class_klass_array;   // Canonicalized obj array of type java.lang.Class
   static oop          _the_null_string;               // A cache of "null" as a Java string
   static oop          _the_min_jint_string;          // A cache of "-2147483648" as a Java string
+  // 对应java_lang_ref_Finalizer类的register(Object finalizee)方法，该类是java_lang_ref包级私有的
   static LatestMethodCache* _finalizer_register_cache; // static method for registering finalizable objects
+  // 对应sun_reflect_DelegatingClassLoader类的addClass方法，DelegatingClassLoader是sun_reflect_ClassDefiner中定义的，
+  // 包级访问，直接继承自java.lang.ClassLoader类
   static LatestMethodCache* _loader_addClass_cache;    // method for registering loaded classes in class loader vector
+  // 对应java_security_ProtectionDomain类的impliesCreateAccessControlContext方法
   static LatestMethodCache* _pd_implies_cache;         // method for checking protection domain attributes
 
+  // 对应 Unsafe类的throwIllegalAccessError() 方法
   static Method* _throw_illegal_access_error;
 
   // preallocated error objects (no backtrace)
@@ -179,14 +190,19 @@ class Universe: AllStatic {
   static oop          _vm_exception;
 
   // The particular choice of collected heap.
+  // 负责Java对象分配的CollectedHeap引用
   static CollectedHeap* _collectedHeap;
 
+  // 用来标识某块内存不是一个合法的oop，在oop遍历时使用
   static intptr_t _non_oop_bits;
 
   // For UseCompressedOops.
+  // 开启UseCompressedOops时，保存用来记录计算真实oop地址的base地址等属性
   static struct NarrowPtrStruct _narrow_oop;
   // For UseCompressedClassPointers.
+  // 开启UseCompressedClassPointers时，保存用来记录计算真实klass地址的base地址等属性
   static struct NarrowPtrStruct _narrow_klass;
+  // 使用narrow_ptrs时的基地址
   static address _narrow_ptrs_base;
 
   // array of dummy objects used with +FullGCAlot
@@ -195,6 +211,7 @@ class Universe: AllStatic {
   debug_only(static int         _fullgc_alot_dummy_next;)
 
   // Compiler/dispatch support
+  // Klass中虚函数表占用内存的最小值，实际就是Object类Klass的虚函数表的大小
   static int  _base_vtable_size;                      // Java vtbl size of klass Object (in words)
 
   // Initialization
@@ -209,7 +226,9 @@ class Universe: AllStatic {
   static oop        gen_out_of_memory_error(oop default_err);
 
   // Historic gc information
+  // 上一次GC时的堆内存的容量
   static size_t _heap_capacity_at_last_gc;
+  // 上一次GC时的堆内存的已使用的内存量
   static size_t _heap_used_at_last_gc;
 
   static jint initialize_heap();
@@ -380,6 +399,7 @@ class Universe: AllStatic {
   }
 
   // Reserve Java heap and determine CompressedOops mode
+  // 用于给Java堆申请一段连续的内存空间，同时计算在开启指针压缩时的指针基地址，所有的垃圾回收器在初始化的时候都会调用此方法
   static ReservedSpace reserve_heap(size_t heap_size, size_t alignment);
 
   // Historic gc information

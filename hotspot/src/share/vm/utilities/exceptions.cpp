@@ -399,10 +399,14 @@ Handle Exceptions::new_exception(Thread* thread, Symbol* name,
 ExceptionMark::ExceptionMark(Thread*& thread) {
   thread     = Thread::current();
   _thread    = thread;
+  // 检查当前线程是否存在异常
   if (_thread->has_pending_exception()) {
+    // 如果存在异常则清除
     oop exception = _thread->pending_exception();
     _thread->clear_pending_exception(); // Needed to avoid infinite recursion
+    // 打印异常
     exception->print();
+    // 报告致命错误
     fatal("ExceptionMark constructor expects no pending exceptions");
   }
 }

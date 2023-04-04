@@ -316,6 +316,7 @@ class FlagSetting {
   bool val;
   bool* flag;
  public:
+  // flag指向目标属性，val是该属性原来的值，newValue是新值
   FlagSetting(bool& fl, bool newValue) { flag = &fl; val = fl; fl = newValue; }
   ~FlagSetting()                       { *flag = val; }
 };
