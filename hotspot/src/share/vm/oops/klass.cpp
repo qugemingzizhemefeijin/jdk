@@ -147,8 +147,12 @@ Method* Klass::uncached_lookup_method(Symbol* name, Symbol* signature) const {
 // 因此没有放到堆中进行管理，堆是垃圾收集器回收的重点，将类的元数据放到堆中时回收的效率会降低。
 void* Klass::operator new(size_t size, ClassLoaderData* loader_data, size_t word_size, TRAPS) throw() {
   // 在元数据区分配内存空间
-  return Metaspace::allocate(loader_data, word_size, /*read_only*/false,
-                             MetaspaceObj::ClassType, CHECK_NULL);
+  return Metaspace::allocate(
+            loader_data,                // 类加载器
+            word_size,                  // 需要分配的内存块大小
+            /*read_only*/false,
+            MetaspaceObj::ClassType,    // 在类指针压缩空间中分配
+            CHECK_NULL);
 }
 
 Klass::Klass() {

@@ -80,6 +80,7 @@ class ClassLoaderDataGraph : public AllStatic {
   static void classes_do(void f(Klass* const));
   static void loaded_classes_do(KlassClosure* klass_closure);
   static void classes_unloading_do(void f(Klass* const));
+  // 找出失效的类加载器，并通过_unloading静态属性保存，多个失效的类加载器会形成一个单链表。
   static bool do_unloading(BoolObjectClosure* is_alive);
 
   // CMS support.
@@ -105,6 +106,10 @@ class ClassLoaderDataGraph : public AllStatic {
 
 // ClassLoaderData class
 
+// 每个类加载器都会对应一个ClassLoaderData实例，该实例负责初始化并销毁一个ClassLoader实例对应的Metaspace。
+// 类加载器共有4类，分别是根类加载器、反射类加载器、匿名类加载器和普通类加载器，其中反射类加载器和匿名类加载器比较少见，
+// 根类加载器就是BootstrapClassLoader，其使用C++编写，其他的扩展类加载器、应用类加载器及自定义的加载器等都属于普通类加载器。
+// 每个加载器都会对应一个Metaspace实例，创建出的实例由ClassLoaderData类中定义的_metaspace属性保存，以便进行管理。
 class ClassLoaderData : public CHeapObj<mtClass> {
   friend class VMStructs;
  private:
@@ -135,6 +140,7 @@ class ClassLoaderData : public CHeapObj<mtClass> {
   Dependencies _dependencies; // holds dependencies from this class loader
                               // data to others.
 
+  // 类加载器对应的Metaspace实例
   Metaspace * _metaspace;  // Meta-space where meta-data defined by the
                            // classes in the class loader are allocated.
   Mutex* _metaspace_lock;  // Locks the metaspace for allocations and setup.
@@ -185,6 +191,7 @@ class ClassLoaderData : public CHeapObj<mtClass> {
 
   void unload();
   bool keep_alive() const       { return _keep_alive; }
+  // 判断类加载器是否还活着
   bool is_alive(BoolObjectClosure* is_alive_closure) const;
   void classes_do(void f(Klass*));
   void loaded_classes_do(KlassClosure* klass_closure);
@@ -226,6 +233,7 @@ class ClassLoaderData : public CHeapObj<mtClass> {
 
   // The Metaspace is created lazily so may be NULL.  This
   // method will allocate a Metaspace if needed.
+  // 元空间是惰性创建的，所以可能是空的。这个方法将在需要时分配一个元空间。
   Metaspace* metaspace_non_null();
 
   oop class_loader() const      { return _class_loader; }

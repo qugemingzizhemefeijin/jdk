@@ -67,7 +67,9 @@ Metachunk::Metachunk(size_t word_size,
 #endif
 }
 
+// 从空闲空间中分配内存
 MetaWord* Metachunk::allocate(size_t word_size) {
+  // 指针碰撞算法分配内存，不需要使用额外的手段保证线程安全。（外层加了锁了）
   MetaWord* result = NULL;
   // If available, bump the pointer to allocate.
   if (free_word_size() >= word_size) {

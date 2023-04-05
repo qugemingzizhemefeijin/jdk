@@ -318,6 +318,8 @@ void ClassLoaderData::unload() {
 }
 
 bool ClassLoaderData::is_alive(BoolObjectClosure* is_alive_closure) const {
+  // 1. 如果是匿名类加载器，并且类加载器加载的Klass实例对应的 java.lang.Class标记为存活，那么该类加载器就不能卸载。
+  // 2. 根类加载器或当前的java.lang.ClassLoader被标记，则这些类加载器也是存活状态。
   bool alive =
     is_anonymous() ?
        is_alive_closure->do_object_b(_klasses->java_mirror()) :
@@ -374,12 +376,15 @@ Metaspace* ClassLoaderData::metaspace_non_null() {
   // to create smaller arena for Reflection class loaders also.
   // The reason for the delayed allocation is because some class loaders are
   // simply for delegating with no metadata of their own.
+  // _metaspace double check.
   if (_metaspace == NULL) {
+    // 加锁
     MutexLockerEx ml(metaspace_lock(),  Mutex::_no_safepoint_check_flag);
     // Check again if metaspace has been allocated while we were getting this lock.
     if (_metaspace != NULL) {
       return _metaspace;
     }
+    // 这里可以看出四种不同的Metaspace的创建。
     if (this == the_null_class_loader_data()) {
       assert (class_loader() == NULL, "Must be");
       set_metaspace(new Metaspace(_metaspace_lock, Metaspace::BootMetaspaceType));
@@ -694,6 +699,7 @@ bool ClassLoaderDataGraph::contains_loader_data(ClassLoaderData* loader_data) {
 
 // Move class loader data from main list to the unloaded list for unloading
 // and deallocation later.
+// 将失效的类加载器从主列表移动到卸载列表，以便稍后卸载。
 bool ClassLoaderDataGraph::do_unloading(BoolObjectClosure* is_alive_closure) {
   ClassLoaderData* data = _head;
   ClassLoaderData* prev = NULL;
@@ -703,6 +709,7 @@ bool ClassLoaderDataGraph::do_unloading(BoolObjectClosure* is_alive_closure) {
   bool has_redefined_a_class = JvmtiExport::has_redefined_a_class();
   MetadataOnStackMark md_on_stack;
   while (data != NULL) {
+    // 如果类加载器已经明确存活，或者调用ClassLoaderData::is_alive()函数返回true，那么这个类加载器不会卸载。
     if (data->keep_alive() || data->is_alive(is_alive_closure)) {
       if (has_redefined_a_class) {
         data->classes_do(InstanceKlass::purge_previous_versions);
@@ -719,6 +726,7 @@ bool ClassLoaderDataGraph::do_unloading(BoolObjectClosure* is_alive_closure) {
     // Remove from loader list.
     // This class loader data will no longer be found
     // in the ClassLoaderDataGraph.
+    // 从列表中移除ClassLoaderData实例
     if (prev != NULL) {
       prev->set_next(data);
     } else {
@@ -727,7 +735,7 @@ bool ClassLoaderDataGraph::do_unloading(BoolObjectClosure* is_alive_closure) {
     }
     dead->set_next(_unloading);
     _unloading = dead;
-  }
+  } // 结束while循环
 
   if (seen_dead_loader) {
     post_class_unload_events();

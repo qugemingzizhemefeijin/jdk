@@ -1769,6 +1769,7 @@ public:
 // Note: anonymous classes are not in the SD.
 bool SystemDictionary::do_unloading(BoolObjectClosure* is_alive) {
   // First, mark for unload all ClassLoaderData referencing a dead class loader.
+  // 首先，标记卸载所有失效类加载器
   bool has_dead_loaders = ClassLoaderDataGraph::do_unloading(is_alive);
   bool unloading_occurred = false;
   if (has_dead_loaders) {

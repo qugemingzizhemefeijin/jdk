@@ -945,6 +945,7 @@ HeapWord* GenCollectorPolicy::satisfy_failed_allocation(size_t size,
   return NULL;
 }
 
+// Metaspace分配内存失败调用 FUll GC
 MetaWord* CollectorPolicy::satisfy_failed_metadata_allocation(
                                                  ClassLoaderData* loader_data,
                                                  size_t word_size,
@@ -1001,10 +1002,13 @@ MetaWord* CollectorPolicy::satisfy_failed_metadata_allocation(
       full_gc_count = Universe::heap()->total_full_collections();
     }
 
-    // 如果之前有线程处于关键区中，则通过VM_CollectForMetadataAllocation会执行内存分配
-    // 如果之前没有线程处于关键区中，则通过VM_CollectForMetadataAllocation触发GC并在GC完成后分配内存
+    // 如果之前有线程处于关键区中，则通过VM_CollectForMetadataAllocation会执行内存分配。
+    // 如果之前没有线程处于关键区中，则通过VM_CollectForMetadataAllocation触发GC并在GC完成后分配内存。
     // 在VM_CollectForMetadataAllocation 执行的时候会判断是否需要跳过此次GC，因为退出关键区的线程已经触发了GC，但是有可能短期内又没内存了需要再次GC
     // Generate a VM operation
+
+    // 垃圾回收线程会调用VM_CollectForMetadataAllocation::doit()函数执行垃圾回收与内存分配的任务。
+    // 当前的线程会等待最终的分配结果。
     VM_CollectForMetadataAllocation op(loader_data,
                                        word_size,
                                        mdtype,

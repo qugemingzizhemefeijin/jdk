@@ -561,6 +561,7 @@ void GenCollectedHeap::do_collection(bool  full,
 
     if (complete) {
       // Delete metaspaces for unloaded class loaders and clean up loader_data graph
+      // 卸载类加载器的元空间并清理 loader_data graph
       ClassLoaderDataGraph::purge();
       MetaspaceAux::verify_metrics();
       // Resize the metaspace capacity after full collections

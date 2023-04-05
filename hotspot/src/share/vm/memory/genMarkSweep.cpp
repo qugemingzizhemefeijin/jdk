@@ -235,6 +235,7 @@ void GenMarkSweep::mark_sweep_phase1(int level,
   assert(_marking_stack.is_empty(), "Marking should have completed");
 
   // Unload classes and purge the SystemDictionary.
+  // 尝试卸载类并清除系统字典
   bool purged_class = SystemDictionary::do_unloading(&is_alive);
 
   // Unload nmethods.

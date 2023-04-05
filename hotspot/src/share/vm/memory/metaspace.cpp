@@ -69,13 +69,13 @@ enum ChunkIndex {
   NumberOfInUseLists = 4
 };
 
-enum ChunkSizes {    // in words.
-  ClassSpecializedChunk = 128,
-  SpecializedChunk = 128,
-  ClassSmallChunk = 256,
-  SmallChunk = 512,
-  ClassMediumChunk = 4 * K,
-  MediumChunk = 8 * K
+enum ChunkSizes {    // in words.   // 注意，这个是字，一般一个字为8字节
+  ClassSpecializedChunk = 128,      // 1K
+  SpecializedChunk = 128,           // 1K
+  ClassSmallChunk = 256,            // 2K
+  SmallChunk = 512,                 // 4K
+  ClassMediumChunk = 4 * K,         // 32K
+  MediumChunk = 8 * K               // 64K
 };
 
 static ChunkIndex next_chunk_index(ChunkIndex i) {
@@ -90,17 +90,19 @@ bool MetaspaceGC::_should_concurrent_collect = false;
 typedef class FreeList<Metachunk> ChunkList;
 
 // Manages the global free lists of chunks.
+// 管理着所有类加载器卸载后释放的内存块Metachunk。
 class ChunkManager : public CHeapObj<mtInternal> {
   friend class TestVirtualSpaceNodeTest;
 
-  // Free list of chunks of different sizes.
-  //   SpecializedChunk
-  //   SmallChunk
-  //   MediumChunk
-  //   HumongousChunk
+  // Free list of chunks of different sizes.    // 空闲列表中含有以下4种尺寸的块：
+  //   SpecializedChunk 128K
+  //   SmallChunk       512K
+  //   MediumChunk      8M
+  //   HumongousChunk   8M+                     // 书上说是不管理超大块，超大块由 _humongous_dictionary 属性管理
   ChunkList _free_chunks[NumberOfFreeLists];
 
   //   HumongousChunk
+  // 超大的块通过字典来保存
   ChunkTreeDictionary _humongous_dictionary;
 
   // ChunkManager in all lists of this type
@@ -111,8 +113,10 @@ class ChunkManager : public CHeapObj<mtInternal> {
     assert(_free_chunks_count > 0 &&
              _free_chunks_total > 0,
              "About to go negative");
+    // 总个数减1
     Atomic::add_ptr(-1, &_free_chunks_count);
     jlong minus_v = (jlong) - (jlong) v;
+    // 总内存空间减少v
     Atomic::add_ptr(minus_v, &_free_chunks_total);
   }
 
@@ -191,6 +195,7 @@ class ChunkManager : public CHeapObj<mtInternal> {
   }
   void locked_verify();
   void slow_locked_verify() {
+    // metaspace_slow_verify默认为false，dubug模式下为true
     if (metaspace_slow_verify) {
       locked_verify();
     }
@@ -479,6 +484,7 @@ class VirtualSpaceList : public CHeapObj<mtClass> {
 
   size_t free_bytes();
 
+  // 从 VirtualSpaceList 中获取Metachunk块
   Metachunk* get_new_chunk(size_t word_size,
                            size_t grow_chunks_by_words,
                            size_t medium_chunk_bunch);
@@ -552,6 +558,7 @@ class Metadebug : AllStatic {
 int Metadebug::_allocation_fail_alot_count = 0;
 
 //  SpaceManager - used by Metaspace to handle allocations
+// 管理每个类加载器正在使用的Metachunk块
 class SpaceManager : public CHeapObj<mtClass> {
   friend class Metaspace;
   friend class Metadebug;
@@ -562,34 +569,51 @@ class SpaceManager : public CHeapObj<mtClass> {
   Mutex* const _lock;
 
   // Type of metadata allocated.
+  // 分配的元数据区类型，分为类相关metadata和非类相关metadata
   Metaspace::MetadataType _mdtype;
+
+  // SpaceManager类定义中的_chunks_in_use是一个存储4个Metachunk*类型的数组，每个槽上存储一个链表结构，链表结构中的Metachunk块大小相同。
+  // 例如下标索引为SpecializedIndex的槽位上存储的是指定的1K的Metachunk块。
+  // 参见枚举 ChunkSizes。
+  //
 
   // List of chunks in use by this SpaceManager.  Allocations
   // are done from the current chunk.  The list is used for deallocating
   // chunks when the SpaceManager is freed.
+  // 保存所有当前类加载器使用的Metachunk块，NumberOfInUseLists是ChunkIndex枚举类型，默认值为4。
+  // hotspot/src/share/vm/memory/metaspace.cpp 64行
   Metachunk* _chunks_in_use[NumberOfInUseLists];
+  // 当前用来分配内存的Metachunk块
   Metachunk* _current_chunk;
 
   // Number of small chunks to allocate to a manager
   // If class space manager, small chunks are unlimited
-  static uint const _small_chunk_limit;
+  static uint const _small_chunk_limit;         // SpaceManager所能分配的small chunks的数量上限，ClassType类型的Metaspace没有此限制
 
   // Sum of all space in allocated chunks
-  size_t _allocated_blocks_words;
+  size_t _allocated_blocks_words;               // 所有block所占的内存大小
 
   // Sum of all allocated chunks
-  size_t _allocated_chunks_words;
-  size_t _allocated_chunks_count;
+  size_t _allocated_chunks_words;               // 所有chunk所占的内存大小
+  size_t _allocated_chunks_count;               // 已分配的chunk的个数
+
+  // 下面属性会保存许多空闲的内存块，为了加快查找速度，这些块底层使用了字典结构这些内存块并不是一整个Metachunk，
+  // 也不是为了复用Metachunk块，而是为了充分复用Metachunk块的剩余空间。
+
+  // 例如，当前正在负责为类加载器分配内存的Metachunk块的剩余空间不够大，这次的分配请求超过了剩余的内存空间，
+  // 那只能从管理空闲块的ChunkManager中申请空闲块，或从VirtualSpaceNode中声明一个新的空闲块，然后在新的空闲块中分配。
+  // 这样会带来一个问题，即原Metachunk块中剩余的空间会被浪费，为了充分利用这部分空间，只能将剩余空间作为一个小的空闲块保存到_block_freelists中，
+  // 这样下次申请分配相对较小的内存时直接从_block_freelists中分配即可。
 
   // Free lists of blocks are per SpaceManager since they
   // are assumed to be in chunks in use by the SpaceManager
   // and all chunks in use by a SpaceManager are freed when
   // the class loader using the SpaceManager is collected.
-  BlockFreelist _block_freelists;
+  BlockFreelist _block_freelists;               // 空闲的chunk列表，这里面的chunk再分配时会被重新使用
 
   // protects virtualspace and chunk expansions
-  static const char*  _expand_lock_name;
-  static const int    _expand_lock_rank;
+  static const char*  _expand_lock_name;        // _expand_lock的name属性
+  static const int    _expand_lock_rank;        // _expand_lock的rank属性
   static Mutex* const _expand_lock;
 
  private:
@@ -678,6 +702,7 @@ class SpaceManager : public CHeapObj<mtClass> {
   size_t sum_count_in_chunks_in_use();
   size_t sum_count_in_chunks_in_use(ChunkIndex i);
 
+  // 从空闲列表中或者VirtualSpaceNode中获取Metachunk块
   Metachunk* get_new_chunk(size_t word_size, size_t grow_chunks_by_words);
 
   // Block allocation and deallocation.
@@ -692,6 +717,7 @@ class SpaceManager : public CHeapObj<mtClass> {
 
   // Based on the allocation size and a minimum chunk size,
   // returned chunk size (for expanding space for chunk allocation).
+  // 根据分配大小和最小块大小，返回块大小（用于扩展块分配空间）。
   size_t calc_chunk_size(size_t allocation_word_size);
 
   // Called when an allocation from the current chunk fails.
@@ -717,8 +743,9 @@ class SpaceManager : public CHeapObj<mtClass> {
 
   size_t get_raw_word_size(size_t word_size) {
     size_t byte_size = word_size * BytesPerWord;
-
+    // byte_size最低大于Metablock的大小
     size_t raw_bytes_size = MAX2(byte_size, sizeof(Metablock));
+    // 向上内存取整
     raw_bytes_size = align_size_up(raw_bytes_size, Metachunk::object_alignment());
 
     size_t raw_word_size = raw_bytes_size / BytesPerWord;
@@ -966,6 +993,7 @@ void VirtualSpaceNode::mangle() {
 // Space allocated from the VirtualSpace
 
 VirtualSpaceList::~VirtualSpaceList() {
+  // 从链表头元素开始遍历，释放所有的VirtualSpaceNode
   VirtualSpaceListIterator iter(virtual_space_list());
   while (iter.repeat()) {
     VirtualSpaceNode* vsl = iter.get_next();
@@ -1010,8 +1038,10 @@ void VirtualSpaceList::dec_virtual_space_count() {
   _virtual_space_count--;
 }
 
+// remove_chunk是将某个Metachunk从ChunkManager中移除
 void ChunkManager::remove_chunk(Metachunk* chunk) {
   size_t word_size = chunk->word_size();
+  // 根据大小匹配对应的空闲chunk链表，然后从链表中移除
   ChunkIndex index = list_index(word_size);
   if (index != HumongousIndex) {
     free_chunks(index)->remove_chunk(chunk);
@@ -1020,6 +1050,7 @@ void ChunkManager::remove_chunk(Metachunk* chunk) {
   }
 
   // Chunk is being removed from the chunks free list.
+  // 减少计数器
   dec_free_chunks_total(chunk->word_size());
 }
 
@@ -1033,6 +1064,7 @@ void VirtualSpaceList::purge(ChunkManager* chunk_manager) {
   VirtualSpaceNode* purged_vsl = NULL;
   VirtualSpaceNode* prev_vsl = virtual_space_list();
   VirtualSpaceNode* next_vsl = prev_vsl;
+  // 遍历VirtualSpaceNode
   while (next_vsl != NULL) {
     VirtualSpaceNode* vsl = next_vsl;
     next_vsl = vsl->next();
@@ -1040,6 +1072,7 @@ void VirtualSpaceList::purge(ChunkManager* chunk_manager) {
     // be needed soon.
     if (vsl->container_count() == 0 && vsl != current_virtual_space()) {
       // Unlink it from the list
+      // 将当前的VirtualSpaceNode从列表中移除
       if (prev_vsl == vsl) {
         // This is the case of the current node being the first node.
         assert(vsl == virtual_space_list(), "Expected to be the first node");
@@ -1047,8 +1080,9 @@ void VirtualSpaceList::purge(ChunkManager* chunk_manager) {
       } else {
         prev_vsl->set_next(vsl->next());
       }
-
+      // 将当前的VirtualSpaceNode中使用的chunks从空闲列表中移除
       vsl->purge(chunk_manager);
+      // 将VirtualSpaceNode使用的内存归还给操作系统。
       dec_reserved_words(vsl->reserved_words());
       dec_committed_words(vsl->committed_words());
       dec_virtual_space_count();
@@ -1077,7 +1111,7 @@ void VirtualSpaceList::retire_current_virtual_space() {
 
   ChunkManager* cm = is_class() ? Metaspace::chunk_manager_class() :
                                   Metaspace::chunk_manager_metadata();
-
+  // 回收当前节点
   vsn->retire(cm);
 }
 
@@ -1106,8 +1140,10 @@ VirtualSpaceList::VirtualSpaceList(size_t word_size) :
                                    _reserved_words(0),
                                    _committed_words(0),
                                    _virtual_space_count(0) {
+  // 获取锁expand_lock
   MutexLockerEx cl(SpaceManager::expand_lock(),
                    Mutex::_no_safepoint_check_flag);
+  // 创建一个新的virtual_space
   create_new_virtual_space(word_size);
 }
 
@@ -1135,6 +1171,7 @@ size_t VirtualSpaceList::free_bytes() {
 bool VirtualSpaceList::create_new_virtual_space(size_t vs_word_size) {
   assert_lock_strong(SpaceManager::expand_lock());
 
+  // 创建compressed class的VirtualSpace不会走到此分支
   if (is_class()) {
     assert(false, "We currently don't support more than one VirtualSpace for"
                   " the compressed class space. The initialization of the"
@@ -1149,14 +1186,18 @@ bool VirtualSpaceList::create_new_virtual_space(size_t vs_word_size) {
 
   // Reserve the space
   size_t vs_byte_size = vs_word_size * BytesPerWord;
+  // 内存取整
   assert_is_size_aligned(vs_byte_size, Metaspace::reserve_alignment());
 
   // Allocate the meta virtual space and initialize it.
+  // 创建一个新的节点
   VirtualSpaceNode* new_entry = new VirtualSpaceNode(vs_byte_size);
   if (!new_entry->initialize()) {
+    // 初始化失败，返回false
     delete new_entry;
     return false;
   } else {
+    // 初始化成功，校验结果
     assert(new_entry->reserved_words() == vs_word_size,
         "Reserved memory size differs from requested memory size");
     // ensure lock-free iteration sees fully initialized node
@@ -1167,12 +1208,14 @@ bool VirtualSpaceList::create_new_virtual_space(size_t vs_word_size) {
 }
 
 void VirtualSpaceList::link_vs(VirtualSpaceNode* new_entry) {
+  // 插入到链表中
   if (virtual_space_list() == NULL) {
       set_virtual_space_list(new_entry);
   } else {
     current_virtual_space()->set_next(new_entry);
   }
   set_current_virtual_space(new_entry);
+  // 增加计数
   inc_reserved_words(new_entry->reserved_words());
   inc_committed_words(new_entry->committed_words());
   inc_virtual_space_count();
@@ -1180,6 +1223,7 @@ void VirtualSpaceList::link_vs(VirtualSpaceNode* new_entry) {
   new_entry->mangle();
 #endif
   if (TraceMetavirtualspaceAllocation && Verbose) {
+    // 打印日志
     VirtualSpaceNode* vsl = current_virtual_space();
     vsl->print_on(gclog_or_tty);
   }
@@ -1189,23 +1233,26 @@ bool VirtualSpaceList::expand_node_by(VirtualSpaceNode* node,
                                       size_t min_words,
                                       size_t preferred_words) {
   size_t before = node->committed_words();
-
+  // 节点expand事假调用VirtualSpace::expand_by方法扩展，如果成功返回true
   bool result = node->expand_by(min_words, preferred_words);
 
   size_t after = node->committed_words();
 
   // after and before can be the same if the memory was pre-committed.
   assert(after >= before, "Inconsistency");
+  // 增加已提交的内存量
   inc_committed_words(after - before);
 
   return result;
 }
 
 bool VirtualSpaceList::expand_by(size_t min_words, size_t preferred_words) {
+  // 校验参数
   assert_is_size_aligned(min_words,       Metaspace::commit_alignment_words());
   assert_is_size_aligned(preferred_words, Metaspace::commit_alignment_words());
   assert(min_words <= preferred_words, "Invalid arguments");
 
+  // MetaspaceGC根据当前已经提交的总内存量和Metaspace最大内存量判断能否扩展
   if (!MetaspaceGC::can_expand(min_words, this->is_class())) {
     return  false;
   }
@@ -1215,22 +1262,30 @@ bool VirtualSpaceList::expand_by(size_t min_words, size_t preferred_words) {
     return false;
   }
 
+  // 因为preferred_words和allowed_expansion_words都是大于或者等于min_words，所以取两者的最小值也能满足要求
   size_t max_expansion_words = MIN2(preferred_words, allowed_expansion_words);
 
   // Commit more memory from the the current virtual space.
+  // 尝试当前节点扩展
   bool vs_expanded = expand_node_by(current_virtual_space(),
                                     min_words,
                                     max_expansion_words);
+  // 扩展成功
   if (vs_expanded) {
     return true;
   }
+
+  // 节点创建时申请的reserved_size的剩余空间不足导致扩展失败，回收当前节点
   retire_current_virtual_space();
 
   // Get another virtual space.
+  // 取两者间的最大值，并做内存取整
   size_t grow_vs_words = MAX2((size_t)VirtualSpaceSize, preferred_words);
   grow_vs_words = align_size_up(grow_vs_words, Metaspace::reserve_alignment_words());
 
+  // 创建一个新的节点
   if (create_new_virtual_space(grow_vs_words)) {
+    // pre_committed即创建的时候已经完成commited
     if (current_virtual_space()->is_pre_committed()) {
       // The memory was pre-committed, so we are done here.
       assert(min_words <= current_virtual_space()->committed_words(),
@@ -1239,6 +1294,7 @@ bool VirtualSpaceList::expand_by(size_t min_words, size_t preferred_words) {
       return true;
     }
 
+    // 非pre_committed，需要手动commited
     return expand_node_by(current_virtual_space(),
                           min_words,
                           max_expansion_words);
@@ -1252,15 +1308,19 @@ Metachunk* VirtualSpaceList::get_new_chunk(size_t word_size,
                                            size_t medium_chunk_bunch) {
 
   // Allocate a chunk out of the current virtual space.
+  // 从当前的VirtualSpaceNode节点分配一个Metachunk
   Metachunk* next = current_virtual_space()->get_chunk_vs(grow_chunks_by_words);
 
   if (next != NULL) {
+    // 分配成功则返回
     return next;
   }
 
   // The expand amount is currently only determined by the requested sizes
   // and not how much committed memory is left in the current virtual space.
 
+  // 当前节点内存不足，需要扩展创建一个新的节点，扩展的量是根据要求分配的chunk_word_size内存大小计算的，而不是当前节点剩余的已提交内存
+  // 对chunk_word_size做内存取整
   size_t min_word_size       = align_size_up(grow_chunks_by_words, Metaspace::commit_alignment_words());
   size_t preferred_word_size = align_size_up(medium_chunk_bunch,   Metaspace::commit_alignment_words());
   if (min_word_size >= preferred_word_size) {
@@ -1268,8 +1328,10 @@ Metachunk* VirtualSpaceList::get_new_chunk(size_t word_size,
     preferred_word_size = min_word_size;
   }
 
+  // 按照min_word_size重新创建一个新的VirtualSpaceNode
   bool expanded = expand_by(min_word_size, preferred_word_size);
   if (expanded) {
+    // 如果创建成功，则使用新的节点创建一个Metachunk
     next = current_virtual_space()->get_chunk_vs(grow_chunks_by_words);
     assert(next != NULL, "The allocation was expected to succeed after the expansion");
   }
@@ -1595,6 +1657,7 @@ size_t ChunkManager::free_chunks_count() {
 
 void ChunkManager::locked_verify_free_chunks_total() {
   assert_lock_strong(SpaceManager::expand_lock());
+  // 校验_free_chunks_total正确
   assert(sum_free_chunks() == _free_chunks_total,
     err_msg("_free_chunks_total " SIZE_FORMAT " is not the"
            " same as sum " SIZE_FORMAT, _free_chunks_total,
@@ -1609,6 +1672,7 @@ void ChunkManager::verify_free_chunks_total() {
 
 void ChunkManager::locked_verify_free_chunks_count() {
   assert_lock_strong(SpaceManager::expand_lock());
+  // 校验_free_chunks_count正确
   assert(sum_free_chunks_count() == _free_chunks_count,
     err_msg("_free_chunks_count " SIZE_FORMAT " is not the"
            " same as sum " SIZE_FORMAT, _free_chunks_count,
@@ -1651,25 +1715,29 @@ ChunkList* ChunkManager::free_chunks(ChunkIndex index) {
 
 // These methods that sum the free chunk lists are used in printing
 // methods that are used in product builds.
+// 返回所有空闲chunk的总的内存大小
 size_t ChunkManager::sum_free_chunks() {
   assert_lock_strong(SpaceManager::expand_lock());
   size_t result = 0;
+  // 遍历数组_free_chunks
   for (ChunkIndex i = ZeroIndex; i < NumberOfFreeLists; i = next_chunk_index(i)) {
     ChunkList* list = free_chunks(i);
 
     if (list == NULL) {
       continue;
     }
-
+    // 链表中每个chunk的大小都是list->size()
     result = result + list->count() * list->size();
   }
   result = result + humongous_dictionary()->total_size();
   return result;
 }
 
+// 统计总的空闲chunk数量
 size_t ChunkManager::sum_free_chunks_count() {
   assert_lock_strong(SpaceManager::expand_lock());
   size_t count = 0;
+  // 遍历数组_free_chunks
   for (ChunkIndex i = ZeroIndex; i < NumberOfFreeLists; i = next_chunk_index(i)) {
     ChunkList* list = free_chunks(i);
     if (list == NULL) {
@@ -1688,15 +1756,18 @@ ChunkList* ChunkManager::find_free_chunks_list(size_t word_size) {
 }
 
 Metachunk* ChunkManager::free_chunks_get(size_t word_size) {
+  // 校验获取锁
   assert_lock_strong(SpaceManager::expand_lock());
-
+  // 校验计数器
   slow_locked_verify();
 
   Metachunk* chunk = NULL;
+  // 如果是通用规格的Metachunk
   if (list_index(word_size) != HumongousIndex) {
+    // 获取对应的链表
     ChunkList* free_list = find_free_chunks_list(word_size);
     assert(free_list != NULL, "Sanity check");
-
+    // 获取链表头元素
     chunk = free_list->head();
 
     if (chunk == NULL) {
@@ -1704,14 +1775,17 @@ Metachunk* ChunkManager::free_chunks_get(size_t word_size) {
     }
 
     // Remove the chunk as the head of the list.
+    // 不为空，则将头元素从链表中移除
     free_list->remove_chunk(chunk);
 
     if (TraceMetadataChunkAllocation && Verbose) {
+      // 打印日志
       gclog_or_tty->print_cr("ChunkManager::free_chunks_get: free_list "
                              PTR_FORMAT " head " PTR_FORMAT " size " SIZE_FORMAT,
                              free_list, chunk, chunk->word_size());
     }
   } else {
+    // 如果是特殊规格，则在humongous链表中查找大于等于word_size的Metachunk
     chunk = humongous_dictionary()->get_chunk(
       word_size,
       FreeBlockDictionary<Metachunk>::atLeast);
@@ -1721,6 +1795,7 @@ Metachunk* ChunkManager::free_chunks_get(size_t word_size) {
     }
 
     if (TraceMetadataHumongousAllocation) {
+      // 查找成功，打印日志
       size_t waste = chunk->word_size() - word_size;
       gclog_or_tty->print_cr("Free list allocate humongous chunk size "
                              SIZE_FORMAT " for requested size " SIZE_FORMAT
@@ -1730,9 +1805,11 @@ Metachunk* ChunkManager::free_chunks_get(size_t word_size) {
   }
 
   // Chunk is being removed from the chunks free list.
+  // 修改计数器
   dec_free_chunks_total(chunk->word_size());
 
   // Remove it from the links to this freelist
+  // 删除对前后节点的引用
   chunk->set_next(NULL);
   chunk->set_prev(NULL);
 #ifdef ASSERT
@@ -1740,6 +1817,7 @@ Metachunk* ChunkManager::free_chunks_get(size_t word_size) {
   // work.
   chunk->set_is_tagged_free(false);
 #endif
+  // 增加Metachunk所属的VirtualSpaceNode的计数器
   chunk->container()->inc_container_count();
 
   slow_locked_verify();
@@ -1747,26 +1825,32 @@ Metachunk* ChunkManager::free_chunks_get(size_t word_size) {
 }
 
 Metachunk* ChunkManager::chunk_freelist_allocate(size_t word_size) {
+  // 获取锁
   assert_lock_strong(SpaceManager::expand_lock());
+  // 校验两个计数器的正确
   slow_locked_verify();
 
   // Take from the beginning of the list
+  // 查找满足要求的Metachunk
   Metachunk* chunk = free_chunks_get(word_size);
   if (chunk == NULL) {
     return NULL;
   }
 
+  // 查找成功，校验结果
   assert((word_size <= chunk->word_size()) ||
          list_index(chunk->word_size() == HumongousIndex),
          "Non-humongous variable sized chunk");
   if (TraceMetadataChunkAllocation) {
     size_t list_count;
+    // 判断word_size对应哪种类型的Metachunk，获取对应类型的Metachunk链表的长度
     if (list_index(word_size) < HumongousIndex) {
       ChunkList* list = find_free_chunks_list(word_size);
       list_count = list->count();
     } else {
       list_count = humongous_dictionary()->total_count();
     }
+    // 打印日志
     gclog_or_tty->print("ChunkManager::chunk_freelist_allocate: " PTR_FORMAT " chunk "
                         PTR_FORMAT "  size " SIZE_FORMAT " count " SIZE_FORMAT " ",
                         this, chunk, chunk->word_size(), list_count);
@@ -1863,12 +1947,14 @@ size_t SpaceManager::sum_capacity_in_chunks_in_use() const {
   // value as sum_capacity_in_chunks_in_use() which is the definitive
   // answer.
   if (UseConcMarkSweepGC) {
+    // CMS不需要使用Metaspace lock，所以不用遍历校验
     return allocated_chunks_words();
   } else {
     MutexLockerEx cl(lock(), Mutex::_no_safepoint_check_flag);
     size_t sum = 0;
     for (ChunkIndex i = ZeroIndex; i < NumberOfInUseLists; i = next_chunk_index(i)) {
       Metachunk* chunk = chunks_in_use(i);
+      // 遍历所有的Metachunk
       while (chunk != NULL) {
         sum += chunk->word_size();
         chunk = chunk->next();
@@ -1929,12 +2015,14 @@ void SpaceManager::locked_print_chunks_in_use_on(outputStream* st) const {
   chunk_manager()->locked_print_sum_free_chunks(st);
 }
 
+// 根据当前要求分配的内存容量word_size计算分配哪个内存块Metachunk，4种不同大小的内存块。
 size_t SpaceManager::calc_chunk_size(size_t word_size) {
 
   // Decide between a small chunk and a medium chunk.  Up to
   // _small_chunk_limit small chunks can be allocated but
   // once a medium chunk has been allocated, no more small
   // chunks will be allocated.
+  // 判断采用MediumChunk还是SmallChunk
   size_t chunk_word_size;
   if (chunks_in_use(MediumIndex) == NULL &&
       sum_count_in_chunks_in_use(SmallIndex) < _small_chunk_limit) {
@@ -1949,12 +2037,16 @@ size_t SpaceManager::calc_chunk_size(size_t word_size) {
   // Might still need a humongous chunk.  Enforce
   // humongous allocations sizes to be aligned up to
   // the smallest chunk size.
+  // 按照SpecializedChunk的内存取整
   size_t if_humongous_sized_chunk =
     align_size_up(word_size + Metachunk::overhead(),
                   smallest_chunk_size());
   chunk_word_size =
     MAX2((size_t) chunk_word_size, if_humongous_sized_chunk);
 
+  // is_humongous为false时，chunk_word_size就是SmallChunk
+  // is_humongous为true时，chunk_word_size就是MediumChunk,word_size大于MediumChunk，算出来的if_humongous_sized_chunk肯定大于chunk_word_size
+  // 取最大值时，chunk_word_size变成if_humongous_sized_chunk
   assert(!SpaceManager::is_humongous(word_size) ||
          chunk_word_size == if_humongous_sized_chunk,
          err_msg("Size calculation is wrong, word_size " SIZE_FORMAT
@@ -1981,12 +2073,15 @@ void SpaceManager::track_metaspace_memory_usage() {
   }
 }
 
+// 从空闲块中找到合适的新块或从VirtualSpaceNode中分配新块
 MetaWord* SpaceManager::grow_and_allocate(size_t word_size) {
+  // 校验参数
   assert(vs_list()->current_virtual_space() != NULL,
          "Should have been set");
   assert(current_chunk() == NULL ||
          current_chunk()->allocate(word_size) == NULL,
          "Don't need to expand");
+  // 获取锁expand_lock
   MutexLockerEx cl(SpaceManager::expand_lock(), Mutex::_no_safepoint_check_flag);
 
   if (TraceMetadataChunkAllocation && Verbose) {
@@ -1996,23 +2091,29 @@ MetaWord* SpaceManager::grow_and_allocate(size_t word_size) {
       words_left = current_chunk()->free_word_size();
       words_used = current_chunk()->used_word_size();
     }
+    // 打印日志
     gclog_or_tty->print_cr("SpaceManager::grow_and_allocate for " SIZE_FORMAT
                            " words " SIZE_FORMAT " words used " SIZE_FORMAT
                            " words left",
                             word_size, words_used, words_left);
   }
 
+  // 计算块的大小并从空闲块中获取，或者从VirtualSpaceNode中新分配一个空闲块
   // Get another chunk out of the virtual space
   size_t grow_chunks_by_words = calc_chunk_size(word_size);
+  // 获取Metachunk块
   Metachunk* next = get_new_chunk(word_size, grow_chunks_by_words);
 
   MetaWord* mem = NULL;
 
   // If a chunk was available, add it to the in-use chunk list
   // and do an allocation from it.
+  // 将分配出的内存块存储到SpaceManager的_chunks_in_use中进行管理，同时从这个新的块中分配请求的内存
   if (next != NULL) {
     // Add to this manager's list of chunks in use.
+    // 将新chunk添加到_chunks_in_use数组中
     add_chunk(next, false);
+    // 使用新chunk分配内存
     mem = next->allocate(word_size);
   }
 
@@ -2078,27 +2179,34 @@ void SpaceManager::inc_used_metrics(size_t words) {
 }
 
 void SpaceManager::dec_total_from_size_metrics() {
+  // 将MetaspaceAux的计数减少
   MetaspaceAux::dec_capacity(mdtype(), allocated_chunks_words());
+  // 扣减所有block的内存空间
   MetaspaceAux::dec_used(mdtype(), allocated_blocks_words());
   // Also deduct the overhead per Metachunk
+  // 扣减Metachunk自身占用的内存空间
   MetaspaceAux::dec_used(mdtype(), allocated_chunks_count() * Metachunk::overhead());
 }
 
 void SpaceManager::initialize() {
   Metadebug::init_allocation_fail_alot_count();
+  // 初始化数组元素
   for (ChunkIndex i = ZeroIndex; i < NumberOfInUseLists; i = next_chunk_index(i)) {
     _chunks_in_use[i] = NULL;
   }
   _current_chunk = NULL;
   if (TraceMetadataChunkAllocation && Verbose) {
+    // 打印日志
     gclog_or_tty->print_cr("SpaceManager(): " PTR_FORMAT, this);
   }
 }
 
+// return_chunks是将某个Metachunk添加到ChunkManager中
 void ChunkManager::return_chunks(ChunkIndex index, Metachunk* chunks) {
   if (chunks == NULL) {
     return;
   }
+  // 找到匹配的链表
   ChunkList* list = free_chunks(index);
   assert(list->size() == chunks->word_size(), "Mismatch in chunk sizes");
   assert_lock_strong(SpaceManager::expand_lock());
@@ -2110,11 +2218,14 @@ void ChunkManager::return_chunks(ChunkIndex index, Metachunk* chunks) {
   // can be used in place of this loop
   while (cur != NULL) {
     assert(cur->container() != NULL, "Container should have been set");
+    // 增加Metachunk所属的VirtualSpaceNode的计数器
     cur->container()->dec_container_count();
     // Capture the next link before it is changed
     // by the call to return_chunk_at_head();
+    // 获取下一个节点
     Metachunk* next = cur->next();
     DEBUG_ONLY(cur->set_is_tagged_free(true);)
+    // 将cur设置为链表头
     list->return_chunk_at_head(cur);
     cur = next;
   }
@@ -2122,19 +2233,22 @@ void ChunkManager::return_chunks(ChunkIndex index, Metachunk* chunks) {
 
 SpaceManager::~SpaceManager() {
   // This call this->_lock which can't be done while holding expand_lock()
+  // 校验计数器_allocated_chunks_words的正确
   assert(sum_capacity_in_chunks_in_use() == allocated_chunks_words(),
     err_msg("sum_capacity_in_chunks_in_use() " SIZE_FORMAT
             " allocated_chunks_words() " SIZE_FORMAT,
             sum_capacity_in_chunks_in_use(), allocated_chunks_words()));
 
+  // 获取锁
   MutexLockerEx fcl(SpaceManager::expand_lock(),
                     Mutex::_no_safepoint_check_flag);
-
+  // 校验ChunkManager的计数器的正确
   chunk_manager()->slow_locked_verify();
-
+  // 将MetaspaceAux中的计数器减少
   dec_total_from_size_metrics();
 
   if (TraceMetadataChunkAllocation && Verbose) {
+    // 打印日志
     gclog_or_tty->print_cr("~SpaceManager(): " PTR_FORMAT, this);
     locked_print_chunks_in_use_on(gclog_or_tty);
   }
@@ -2144,6 +2258,7 @@ SpaceManager::~SpaceManager() {
 
   // Have to update before the chunks_in_use lists are emptied
   // below.
+  // 增加空闲的chunk的数量和空闲chunk的内存大小
   chunk_manager()->inc_free_chunks_total(allocated_chunks_words(),
                                          sum_count_in_chunks_in_use());
 
@@ -2153,12 +2268,14 @@ SpaceManager::~SpaceManager() {
   // Follow each list of chunks-in-use and add them to the
   // free lists.  Each list is NULL terminated.
 
+  // 将当前SpaceManger使用的所有SpecializedChunk、SmallChunk与MediumChunk交给ChunkManger管理
   for (ChunkIndex i = ZeroIndex; i < HumongousIndex; i = next_chunk_index(i)) {
     if (TraceMetadataChunkAllocation && Verbose) {
       gclog_or_tty->print_cr("returned %d %s chunks to freelist",
                              sum_count_in_chunks_in_use(i),
                              chunk_size_name(i));
     }
+    // 遍历_chunks_in_use中的Chunk，将其归还到ChunkManager
     Metachunk* chunks = chunks_in_use(i);
     chunk_manager()->return_chunks(i, chunks);
     set_chunks_in_use(i, NULL);
@@ -2182,6 +2299,7 @@ SpaceManager::~SpaceManager() {
     gclog_or_tty->print("Humongous chunk dictionary: ");
   }
   // Humongous chunks are never the current chunk.
+  // 获取Humongous chunk，因为大小不规整，不能通过return_chunks方法添加到ChunkManager中
   Metachunk* humongous_chunks = chunks_in_use(HumongousIndex);
 
   while (humongous_chunks != NULL) {
@@ -2193,14 +2311,18 @@ SpaceManager::~SpaceManager() {
                           humongous_chunks,
                           humongous_chunks->word_size());
     }
+    // 校验Humongous chunk的内存大小是经过内存取整的
     assert(humongous_chunks->word_size() == (size_t)
            align_size_up(humongous_chunks->word_size(),
                              smallest_chunk_size()),
            err_msg("Humongous chunk size is wrong: word size " SIZE_FORMAT
                    " granularity %d",
                    humongous_chunks->word_size(), smallest_chunk_size()));
+    // 获取下一个chunk
     Metachunk* next_humongous_chunks = humongous_chunks->next();
+    // 减少VirtualSpaceNode中的计数器
     humongous_chunks->container()->dec_container_count();
+    // 归还到_humongous_dictionary中
     chunk_manager()->humongous_dictionary()->return_chunk(humongous_chunks);
     humongous_chunks = next_humongous_chunks;
   }
@@ -2247,12 +2369,15 @@ ChunkIndex ChunkManager::list_index(size_t size) {
   }
 }
 
+// 用于释放这个内存块，将内存块作为MetaBlock归还到BlockFreelist中
 void SpaceManager::deallocate(MetaWord* p, size_t word_size) {
   assert_lock_strong(_lock);
+  // 获取取整后的字宽数
   size_t raw_word_size = get_raw_word_size(word_size);
   size_t min_size = TreeChunk<Metablock, FreeList>::min_size();
   assert(raw_word_size >= min_size,
          err_msg("Should not deallocate dark matter " SIZE_FORMAT "<" SIZE_FORMAT, word_size, min_size));
+  // 将其作为MetaBlock放到BlockFreelist中
   block_freelists()->return_block(p, raw_word_size);
 }
 
@@ -2262,14 +2387,19 @@ void SpaceManager::add_chunk(Metachunk* new_chunk, bool make_current) {
   assert(new_chunk != NULL, "Should not be NULL");
   assert(new_chunk->next() == NULL, "Should not be on a list");
 
+  // 将其重置成初始状态
   new_chunk->reset_empty();
 
   // Find the correct list and and set the current
   // chunk for that list.
+  // 根据chunk的大小找到匹配的链表
   ChunkIndex index = ChunkManager::list_index(new_chunk->word_size());
 
+  // 如果是规整的chunk
   if (index != HumongousIndex) {
+    // 将当前chunk的剩余空间分配成block，放入BlockFreelist中，避免空间浪费
     retire_current_chunk();
+    // 将新的chunk设置为当前chunk，原来的chunk作为当前chunk的next节点
     set_current_chunk(new_chunk);
     new_chunk->set_next(chunks_in_use(index));
     set_chunks_in_use(index, new_chunk);
@@ -2279,6 +2409,8 @@ void SpaceManager::add_chunk(Metachunk* new_chunk, bool make_current) {
     // chunk.
     if (make_current) {
       // Set as the current chunk but otherwise treat as a humongous chunk.
+      // 将新chunk设置为当前chunk，SpaceManager::grow_and_allocate中调用时永远传false，Metaspace::initialize_first_chunk中调用时传true
+      //只有启动类加载器对应的metaspace才会将_current_chunk设置为一个humongous chunk
       set_current_chunk(new_chunk);
     }
     // Link at head.  The _current_chunk only points to a humongous chunk for
@@ -2291,7 +2423,7 @@ void SpaceManager::add_chunk(Metachunk* new_chunk, bool make_current) {
     assert(new_chunk->word_size() > medium_chunk_size(), "List inconsistency");
   }
 
-  // Add to the running sum of capacity
+  // Add to the running sum of capacity // 增加计数
   inc_size_metrics(new_chunk->word_size());
 
   assert(new_chunk->is_empty(), "Not ready for reuse");
@@ -2299,26 +2431,32 @@ void SpaceManager::add_chunk(Metachunk* new_chunk, bool make_current) {
     gclog_or_tty->print("SpaceManager::add_chunk: %d) ",
                         sum_count_in_chunks_in_use());
     new_chunk->print_on(gclog_or_tty);
+    // 打印日志
     chunk_manager()->locked_print_free_chunks(gclog_or_tty);
   }
 }
 
 void SpaceManager::retire_current_chunk() {
   if (current_chunk() != NULL) {
+    // 获取剩余的内存
     size_t remaining_words = current_chunk()->free_word_size();
     if (remaining_words >= TreeChunk<Metablock, FreeList>::min_size()) {
+      // 如果大于最小值，则将其变成block放到BlockFreelist中，避免空间浪费
       block_freelists()->return_block(current_chunk()->allocate(remaining_words), remaining_words);
       inc_used_metrics(remaining_words);
     }
   }
 }
 
+// 从空闲列表中获取块或者从VirtualSpaceNode中获取。
 Metachunk* SpaceManager::get_new_chunk(size_t word_size,
                                        size_t grow_chunks_by_words) {
   // Get a chunk from the chunk freelist
+  // 从空闲列表中获取空闲块
   Metachunk* next = chunk_manager()->chunk_freelist_allocate(grow_chunks_by_words);
 
   if (next == NULL) {
+    // 获取不到，从VirtualSpaceNode中获取。
     next = vs_list()->get_new_chunk(word_size,
                                     grow_chunks_by_words,
                                     medium_chunk_bunch());
@@ -2333,9 +2471,10 @@ Metachunk* SpaceManager::get_new_chunk(size_t word_size,
   return next;
 }
 
+// 分配一个指定大小的内存块，优先从BlockFreelist中分配，分配失败从当前chunk中分配，还是失败则创建一个新的chunk，从新chunk中分配
 MetaWord* SpaceManager::allocate(size_t word_size) {
   MutexLockerEx cl(lock(), Mutex::_no_safepoint_check_flag);
-
+  // 获取取整后的字宽数
   size_t raw_word_size = get_raw_word_size(word_size);
   BlockFreelist* fl =  block_freelists();
   MetaWord* p = NULL;
@@ -2344,10 +2483,17 @@ MetaWord* SpaceManager::allocate(size_t word_size) {
   // from the dictionary until it starts to get fat.  Is this
   // a reasonable policy?  Maybe an skinny dictionary is fast enough
   // for allocations.  Do some profiling.  JJJ
+
+  // 由于从字典中搜索需要时间，所以只有空闲块中的总量大于allocation_from_dictionary_limit变量定义的4KB时，
+  // 为了避免内存过度浪费才会从BlockFreeList中分配内存。
+
+  // 当某次请求的内存大小无法从当前的Metachunk块中分配时，如果当前的Metachunk块剩余的空闲空间相对比较大，
+  // 就会将这个Metachunk块保存到_block_freelists中，当下一次分配请求到来时，如果请求的内存比较小，这个块中剩余的空闲空间还能进行分配内存的操作。
   if (fl->total_size() > allocation_from_dictionary_limit) {
     p = fl->get_block(raw_word_size);
   }
   if (p == NULL) {
+    // 从当前chunk中分配，如果内存不足则创建一个新的chunk，从新chunk中分配
     p = allocate_work(raw_word_size);
   }
 
@@ -2369,6 +2515,8 @@ MetaWord* SpaceManager::allocate_work(size_t word_size) {
   // For DumpSharedSpaces, only allocate out of the current chunk which is
   // never null because we gave it the size we wanted.   Caller reports out
   // of memory if this returns null.
+  // DumpSharedSpaces表示Dump出共享的space到一个文件中，默认为false
+  // 如果DumpSharedSpaces为true则只尝试从当前的chunk中分配，如果分配失败，返回NULL由调用方负责处理
   if (DumpSharedSpaces) {
     assert(current_chunk() != NULL, "should never happen");
     inc_used_metrics(word_size);
@@ -2376,14 +2524,17 @@ MetaWord* SpaceManager::allocate_work(size_t word_size) {
   }
 
   if (current_chunk() != NULL) {
+    // 从当前块中分配内存
     result = current_chunk()->allocate(word_size);
   }
 
   if (result == NULL) {
+    // 如果分配失败，从新的块中分配（从空闲块中找到合适的新块或从VirtualSpaceNode中分配新块）内存。
     result = grow_and_allocate(word_size);
   }
 
   if (result != NULL) {
+    // 如果分配成功，增加计数
     inc_used_metrics(word_size);
     assert(result != (MetaWord*) chunks_in_use(MediumIndex),
            "Head of the list is being allocated");
@@ -3203,6 +3354,7 @@ size_t Metaspace::align_word_size_up(size_t word_size) {
 MetaWord* Metaspace::allocate(size_t word_size, MetadataType mdtype) {
   // DumpSharedSpaces doesn't use class metadata area (yet)
   // Also, don't use class_vsm() unless UseCompressedClassPointers is true.
+  // 根据MetadataType决定是在类指针压缩空间分配内存，还是在元数据区分配内存，但最终都会调用对应的SpaceManager实例的allocate()函数。
   if (is_class_space_allocation(mdtype)) {
     return  class_vsm()->allocate(word_size);
   } else {
@@ -3304,7 +3456,7 @@ void Metaspace::deallocate(MetaWord* ptr, size_t word_size, bool is_class) {
   }
 }
 
-
+// 从ClassLoaderData维护的元空间中申请内存
 MetaWord* Metaspace::allocate(ClassLoaderData* loader_data, size_t word_size,
                               bool read_only, MetaspaceObj::Type type, TRAPS) {
   if (HAS_PENDING_EXCEPTION) {
@@ -3337,14 +3489,20 @@ MetaWord* Metaspace::allocate(ClassLoaderData* loader_data, size_t word_size,
   MetadataType mdtype = (type == MetaspaceObj::ClassType) ? ClassType : NonClassType;
 
   // Try to allocate metadata.
+  // 调用类加载器的metaspace_non_null()函数获取Metaspace实例并尝试分配空间（元空间是惰性创建的，所以可能是空的。这个方法将在需要时分配一个元空间。）
   MetaWord* result = loader_data->metaspace_non_null()->allocate(word_size, mdtype);
 
   if (result == NULL) {
     // Allocation failed.
+    // 分配空间失败
     if (is_init_completed()) {
       // Only start a GC if the bootstrapping has completed.
 
       // Try to clean out some memory and retry.
+      // 如果类加载器当前的内存块无法满足分配，并且ChunkManager中没有空闲块，VirtualSpaceNode中也分配不出新的内存块，
+      // 那么会触发GC进行内存回收后再分配。
+
+      // 如果当前使用的是Serial或Serial Old收集器，那么会调用 CollectorPolicy::satisfy_failed_metadata_allocation 函数，
       result = Universe::heap()->collector_policy()->satisfy_failed_metadata_allocation(
           loader_data, word_size, mdtype);
     }
@@ -3355,6 +3513,7 @@ MetaWord* Metaspace::allocate(ClassLoaderData* loader_data, size_t word_size,
   }
 
   // Zero initialize.
+  // 将分配的内存清零
   Copy::fill_to_aligned_words((HeapWord*)result, word_size, 0);
 
   return result;
@@ -3447,7 +3606,9 @@ void Metaspace::purge(MetadataType mdtype) {
 void Metaspace::purge() {
   MutexLockerEx cl(SpaceManager::expand_lock(),
                    Mutex::_no_safepoint_check_flag);
+  // 清理元空间
   purge(NonClassType);
+  // 如果使用了类指针压缩空间，则清理此空间
   if (using_class_space()) {
     purge(ClassType);
   }

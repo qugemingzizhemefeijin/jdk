@@ -34,8 +34,11 @@ class VirtualSpaceNode;
 // be put on the FreeList and in the BinaryTreeDictionary.
 template <class T>
 class Metabase VALUE_OBJ_CLASS_SPEC {
+  // 块空间大小
   size_t _word_size;
+  // 下一个块
   T*     _next;
+  // 上一个块
   T*     _prev;
 
  protected:
@@ -94,12 +97,30 @@ class Metabase VALUE_OBJ_CLASS_SPEC {
 //            |              |             |         |
 //            +--------------+ <- bottom --+       --+
 
+// end()   -->|-
+//            |-
+//            |-  used_word_size()
+// _top    -->|-
+//            |-
+//            |-  free_word_size()
+//            |-
+// bottom()-->|-
+
+// 通常，一个类加载器在申请Metaspace空间用来存放metadata时，只需要几十到几百个字节，但是它会得到一个Metachunk块，一个比要求的内存大得多的内存块。
+// 为什么一个类加载器申请Metaspace空间时会得到一个比要求的内存大得多的内存块呢？
+// 因为要从全局的VirtualSpaceList链表的Node中分配内存是“昂贵”的操作，需要加锁。我们不希望这个操作太频繁，因此一次性给一个大的MetaChunk块，
+// 以便于这个类加载器之后加载其他的类，这样就可以做到多个类加载器并发分配了。只有当这个chunk块用完了，类加载器才需要VirtualSpaceList去申请新的chunk。
+
+// Metachunk块通过SpaceManager和ChunkManager管理，SpaceManager用来管理每个类加载器正在使用的Metachunk块，
+// 而ChunkManager用来管理所有空闲的Metachunk块。
 class Metachunk : public Metabase<Metachunk> {
   friend class TestMetachunk;
   // The VirtualSpaceNode containing this chunk.
+  // 此Metachunk归属的VirtualSpaceNode节点
   VirtualSpaceNode* _container;
 
   // Current allocation top.
+  // 指向空闲空间的开始地址
   MetaWord* _top;
 
   DEBUG_ONLY(bool _is_tagged_free;)
@@ -122,6 +143,7 @@ class Metachunk : public Metabase<Metachunk> {
 
   Metachunk(size_t word_size , VirtualSpaceNode* container);
 
+  // 从metachunk中分配内存
   MetaWord* allocate(size_t word_size);
 
   VirtualSpaceNode* container() const { return _container; }
@@ -136,6 +158,7 @@ class Metachunk : public Metabase<Metachunk> {
   // free (available for future allocations)
   size_t word_size() const { return size(); }
   size_t used_word_size() const;
+  // 获取空闲内存大小
   size_t free_word_size() const;
 
 #ifdef ASSERT

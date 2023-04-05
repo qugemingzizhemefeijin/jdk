@@ -340,6 +340,8 @@ public:
 
   // Unload (that is, break root links to) all unmarked classes and
   // loaders.  Returns "true" iff something was unloaded.
+
+  // 尝试卸载类并清除系统字典
   static bool do_unloading(BoolObjectClosure* is_alive);
 
   static int calculate_systemdictionary_size(int loadedclasses);
