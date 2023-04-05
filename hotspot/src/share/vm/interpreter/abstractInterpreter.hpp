@@ -146,7 +146,15 @@ class AbstractInterpreter: AllStatic {
   // Method activation
   static MethodKind method_kind(methodHandle m);
   static address    entry_for_kind(MethodKind k)                { assert(0 <= k && k < number_of_method_entries, "illegal kind"); return _entry_table[k]; }
-  static address    entry_for_method(methodHandle m)            { return entry_for_kind(method_kind(m)); }
+  static address    entry_for_method(methodHandle m)            {
+    // AbstractInterpreter::MethodKind mk = method_kind(m);
+    // MethodKind是枚举类型，定义了表示不同方法类型的常量，如普通的非同步方法、普通的同步方法、本地非同步方法和本地同步方法。
+    // 在调用这些方法时，由于调用约定或栈帧结构不同，因此对应的例程入口也不同。
+    // 获取方法类型后，通过entry_for_kind()函数直接获取对应的入口地址即可。
+    // _entry_table在HotSpot VM启动时就会初始化，其中存储的是不同类型方法的例程入口，直接获取即可。
+    // 需要说明的是，这些例程入口是解释执行时的入口。
+    return entry_for_kind(method_kind(m));
+  }
 
   // used for bootstrapping method handles:
   static void       set_entry_for_kind(MethodKind k, address e);

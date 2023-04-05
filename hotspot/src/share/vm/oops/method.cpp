@@ -864,6 +864,7 @@ void Method::unlink_method() {
 void Method::link_method(methodHandle h_method, TRAPS) {
   // If the code cache is full, we may reenter this function for the
   // leftover methods that weren't linked.
+  // 当_i2i_entry属性的值不为空时，表示方法已经连接过，因为此方法可能会重复调用。
   if (_i2i_entry != NULL) return;
 
   assert(_adapter == NULL, "init'd to NULL" );
@@ -871,9 +872,13 @@ void Method::link_method(methodHandle h_method, TRAPS) {
 
   // Setup interpreter entrypoint
   assert(this == h_method(), "wrong h_method()" );
+  // 为解释执行设置入口，在初始化时，将Method中的_i2i_entry和_from_interpreted_entry属性设置为解释执行的入口
+  // 调用的Interpreter::entry_for_method()函数非常重要，该函数会根据Java方法类型获取对应的方法执行例程
+  // （就是一段机器代码，为方法的调用准备栈帧等必要信息）的入口地址。
   address entry = Interpreter::entry_for_method(h_method);
   assert(entry != NULL, "interpreter entry must be non-null");
   // Sets both _i2i_entry and _from_interpreted_entry
+  // 设置解释执行的入口
   set_interpreter_entry(entry);
 
   // Don't overwrite already registered native entries.
@@ -891,16 +896,22 @@ void Method::link_method(methodHandle h_method, TRAPS) {
   // called from the vtable.  We need adapters on such methods that get loaded
   // later.  Ditto for mega-morphic itable calls.  If this proves to be a
   // problem we'll make these lazily later.
+  // 为编译执行设置入口
   (void) make_adapters(h_method, CHECK);
 
   // ONLY USE the h_method now as make_adapter may have blocked
 
 }
 
+// 设置方法的编译执行入口地址
 address Method::make_adapters(methodHandle mh, TRAPS) {
   // Adapters for compiled code are made eagerly here.  They are fairly
   // small (generally < 100 bytes) and quick to make (and cached and shared)
   // so making them eagerly shouldn't be too expensive.
+  // 获取适配器adapter后将其保存在Method的_adapter属性中。
+  // _adapter用来适配从解释执行转换为编译执行或从编译执行转换为解释执行。
+  // 由于HotSpot VM解释模式的调用约定是用栈来传递参数，而编译模式的调用约定更多的是采用寄存器传递参数，
+  // 二者不兼容，因而从解释执行中调用已经被编译的方法，或者从编译执行中调用需要解释执行的方法时，都需要在调用时进行适配。
   AdapterHandlerEntry* adapter = AdapterHandlerLibrary::get_adapter(mh);
   if (adapter == NULL ) {
     THROW_MSG_NULL(vmSymbols::java_lang_VirtualMachineError(), "out of space in CodeCache for adapters");

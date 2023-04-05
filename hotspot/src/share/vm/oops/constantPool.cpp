@@ -110,6 +110,7 @@ objArrayOop ConstantPool::resolved_references() const {
 // The ldc bytecode was rewritten to have the resolved reference array index so need a way
 // to map it back for resolving and some unlikely miscellaneous uses.
 // The objects created by invokedynamic are appended to this list.
+// @param reference_map 为Rewriter类中的_resolved_references_map属性值
 void ConstantPool::initialize_resolved_references(ClassLoaderData* loader_data,
                                                   intStack reference_map,
                                                   int constant_pool_map_length,
@@ -127,15 +128,18 @@ void ConstantPool::initialize_resolved_references(ClassLoaderData* loader_data,
       for (int i = 0; i < constant_pool_map_length; i++) {
         int x = reference_map.at(i);
         assert(x == (int)(jushort) x, "klass index is too big");
-        om->at_put(i, (jushort)x);
+        om->at_put(i, (jushort)x);  // 建立常量池缓存索引到原常量池索引的映射关系
       }
+      // 设置ConstantPool类的_reference_map属性的值
       set_reference_map(om);
     }
 
     // Create Java array for holding resolved strings, methodHandles,
     // methodTypes, invokedynamic and invokehandle appendix objects, etc.
+    // 创建Java的Object数组来保存已解析的字符串等
     objArrayOop stom = oopFactory::new_objArray(SystemDictionary::Object_klass(), map_length, CHECK);
     Handle refs_handle (THREAD, (oop)stom);  // must handleize.
+    // 设置ConstantPool类的_resolved_references属性的值
     set_resolved_references(loader_data->add_handle(refs_handle));
   }
 }

@@ -93,6 +93,7 @@ class ConstantPool : public Metadata {
 
   // Array of resolved objects from the constant pool and map from resolved
   // object index to original constant pool index
+  // 在这两个属性中保存的信息可辅助执行invokevirtual和invokespecial等字节码指令。
   jobject              _resolved_references;
   Array<u2>*           _reference_map;
 

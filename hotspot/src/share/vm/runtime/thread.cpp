@@ -979,7 +979,11 @@ bool Thread::set_as_starting_thread() {
 }
 
 static void initialize_class(Symbol* class_name, TRAPS) {
+  // 调用SystemDictionary::resolve_or_fail()函数以保证类被正确装载。
+  // 如果类没有被装载，那么最终会调用ClassFileParser::parseClassFile()函数装载类，
+  // 并通过创建ConstantPool、Method和InstanceKlass等实例将元数据保存到HotSpot VM中。
   Klass* klass = SystemDictionary::resolve_or_fail(class_name, true, CHECK);
+  // 进行类的连接，这个函数最终会调用InstanceKlass::link_class_impl()函数。
   InstanceKlass::cast(klass)->initialize(CHECK);
 }
 

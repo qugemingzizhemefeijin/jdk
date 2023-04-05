@@ -207,7 +207,7 @@ class Method : public Metadata {
   ConstMethod* constMethod() const             { return _constMethod; }
   void set_constMethod(ConstMethod* xconst)    { _constMethod = xconst; }
 
-
+  // 设置方法的编译执行入口
   static address make_adapters(methodHandle mh, TRAPS);
   volatile address from_compiled_entry() const   { return (address)OrderAccess::load_ptr_acquire(&_from_compiled_entry); }
   volatile address from_interpreted_entry() const{ return (address)OrderAccess::load_ptr_acquire(&_from_interpreted_entry); }

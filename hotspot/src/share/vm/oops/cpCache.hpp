@@ -123,6 +123,21 @@ class PSPromotionManager;
 
 class CallInfo;
 
+// 如果当前的ConstantPoolCacheEntry表示的是方法入口，_f1与_f2字段根据字节码指令调用的不同，其存储的信息也不同。
+// 字节码调用方法的指令主要有以下几个：
+// 1.invokevirtual：通过vtable进行方法的分发
+//   _f1：没有使用；
+//   _f2：如果调用的是非final的virtual方法，则_f2字段保存的是目标方法在vtable中的索引编号；
+//        如果调用的是virtual final方法，则_f2字段直接指向目标方法的Method实例。
+// 2.invokeinterface： 通过itable进行方法的分发
+//   _f1： 该字段指向对应接口的Klass实例；
+//   _f2： 该字段保存的是方法位于itable的itableMethod方法表中的索引编号。
+// 3.invokespecial： 调用private和构造方法， 不需要分发机制
+//   _f1： 该字段指向目标方法的Method实例（用_f1字段可以直接定位Java方法在内存中的具体位置， 从而实现方法的调用）。
+//   _f2： 没有使用。
+// 4.invokestatic： 调用静态方法， 不需要分发机制。
+//   _f1： 该字段指向目标方法的Method实例（用_f1字段可以直接定位Java方法在内存中的具体位置，从而实现方法的调用）。
+//   f2： 没有使用。
 class ConstantPoolCacheEntry VALUE_OBJ_CLASS_SPEC {
   friend class VMStructs;
   friend class constantPoolCacheKlass;
@@ -391,17 +406,33 @@ class ConstantPoolCacheEntry VALUE_OBJ_CLASS_SPEC {
 // is created and initialized before a class is actively used (i.e., initialized), the indivi-
 // dual cache entries are filled at resolution (i.e., "link") time (see also: rewriter.*).
 
+// 保存了连接过程中的一些信息，从而让程序在解释执行的过程中避免重复执行连接过程。
+// ConstantPoolCache实例的内存布局
+// |---------------------------------|
+// |  ConstantPoolCache本身占用内存空间 |     header_size()
+// |          (大小为2个字)            |     base()
+// |    ConstantPoolCacheEntry 1     |
+// |          (大小为4个字)            |
+// |              ...                |     length个ConstantPoolCacheEntry
+// |    ConstantPoolCacheEntry n     |     entry_at(n)
+// |          (大小为4个字)            |
+// |---------------------------------|
+
+// 调用size()可以获取整个实例的大小，调用header_size()可以获取ConstantPoolCache本身占用的内存空间，调用base()函数可以
+// 获取第一个ConstantPool-CacheEntry的首地址，调用entry_at()函数可以获取第i个ConstantPoolCacheEntry实例。
 class ConstantPoolCache: public MetaspaceObj {
   friend class VMStructs;
   friend class MetadataFactory;
  private:
+  // 表示Rewriter类中_cp_cache_map整数栈中的数量
   int             _length;
+  // 表示ConstantPoolCache保存的是哪个常量池的信息。
   ConstantPool*   _constant_pool;          // the corresponding constant pool
 
   // Sizing
   debug_only(friend class ClassVerifier;)
 
-  // Constructor
+  // Constructor 构造函数
   ConstantPoolCache(int length,
                     const intStack& inverse_index_map,
                     const intStack& invokedynamic_inverse_index_map,
@@ -429,16 +460,24 @@ class ConstantPoolCache: public MetaspaceObj {
   int length() const                             { return _length; }
  private:
   void set_length(int length)                    { _length = length; }
-
+  // 2个字，一个字包含8字节
   static int header_size()                       { return sizeof(ConstantPoolCache) / HeapWordSize; }
-  static int size(int length)                    { return align_object_size(header_size() + length * in_words(ConstantPoolCacheEntry::size())); }
+  // 返回的是字的数量
+  static int size(int length)                    {
+    // ConstantPoolCache加上length个ConstantPoolCacheEntry的大小
+    // in_words(ConstantPoolCacheEntry::size())的值为4，表示每个ConstantPoolCacheEntry需要占用4字节
+    return align_object_size(header_size() + length * in_words(ConstantPoolCacheEntry::size()));
+  }
  public:
   int size() const                               { return size(length()); }
  private:
 
   // Helpers
   ConstantPool**        constant_pool_addr()   { return &_constant_pool; }
-  ConstantPoolCacheEntry* base() const           { return (ConstantPoolCacheEntry*)((address)this + in_bytes(base_offset())); }
+  ConstantPoolCacheEntry* base() const           {
+    // 这就说明在ConstantPoolCache之后紧跟着的是ConstantPoolCacheEntry项
+    return (ConstantPoolCacheEntry*)((address)this + in_bytes(base_offset()));
+  }
 
   friend class constantPoolCacheKlass;
   friend class ConstantPoolCacheEntry;

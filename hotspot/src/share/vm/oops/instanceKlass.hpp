@@ -367,9 +367,15 @@ class InstanceKlass: public Klass {
   // Class states are defined as ClassState (see above).
   // Place the _init_state here to utilize the unused 2-byte after
   // _idnum_allocated_count.
-  // 表示类的状态，为枚举类型ClassState，定义了如下常量：
-  // allocated(已分配内存)，loaded(读取Class文件信息并加载到内存中)，linked(已经成功连接和校验)
-  // being_initialized(正在初始化)，fully_initialized(已经完成初始化)，initialization_error(初始化发生错误)
+  // 表示类的状态，为枚举类型 ClassState，定义了如下常量：
+  // allocated(已分配内存) - 已经分配内存，在InstanceKlass的构造函数中通常会将_init_state初始化为这个状态。
+  // loaded(读取Class文件信息并加载到内存中) - 表示类已经装载并且已经插入继承体系中，
+  //                                      在SystemDictionary::add_to_hierarchy()函数中会更新InstanceKlass的_init_state属性为此状态。
+  // linked(已经成功连接和校验) - 表示已经成功连接/校验，只在InstanceKlass::link_class_impl()方法中更新为这个状态。
+  // being_initialized(正在初始化) - 下面3个状态在类的初始化函数Instance-Klass::initialize_impl()中会用到，
+  //                               分别表示类的初始化过程中的不同状态——正在初始化、已经完成初始化和初始化出错，函数会根据不同的状态执行不同的逻辑。
+  // fully_initialized(已经完成初始化)
+  // initialization_error(初始化发生错误)
   u1              _init_state;                    // state of class
   // 引用类型，表示当前的InstanceKlass实例的应用类型，可能是强引用、软引用和弱引用等
   u1              _reference_type;                // reference type
@@ -577,13 +583,20 @@ class InstanceKlass: public Klass {
                                           Klass* class2, TRAPS);
 
   // initialization state
+  // 类是否读取Class文件信息并加载到内存中
   bool is_loaded() const                   { return _init_state >= loaded; }
+  // 类是否已经成功连接和校验
   bool is_linked() const                   { return _init_state >= linked; }
+  // 类是否已经完成初始化
   bool is_initialized() const              { return _init_state == fully_initialized; }
+  // 类是否还未完成初始化
   bool is_not_initialized() const          { return _init_state <  being_initialized; }
+  // 类是否正在初始化
   bool is_being_initialized() const        { return _init_state == being_initialized; }
+  // 类是否初始化发生错误
   bool is_in_error_state() const           { return _init_state == initialization_error; }
   bool is_reentrant_initialization(Thread *thread)  { return thread == _init_thread; }
+  // 返回类的初始化状态枚举，hotspot/src/share/vm/oops/instanceKlass.hpp 256行
   ClassState  init_state()                 { return (ClassState)_init_state; }
   bool is_rewritten() const                { return (_misc_flags & _misc_rewritten) != 0; }
 
@@ -604,12 +617,16 @@ class InstanceKlass: public Klass {
   void set_is_marked_dependent(bool value) { _is_marked_dependent = value; }
 
   // initialization (virtuals from Klass)
+  // 当前的类不为初始化完成状态，则需要被初始化
   bool should_be_initialized() const;  // means that initialize should be called
+  // 类初始化入口 -> initialize_impl()
   void initialize(TRAPS);
   void link_class(TRAPS);
   bool link_class_or_fail(TRAPS); // returns false on failure
   void unlink_class();
+  // 重写类的部分字节码，重写字节码大多是为了在解释执行字节码过程中提高程序运行的效率。
   void rewrite_class(TRAPS);
+  // 方法的连接，在link_class_impl()函数中完成字节码验证后，调用link_methods()函数为方法的执行设置解释入口和编译入口
   void link_methods(TRAPS);
   Method* class_initializer();
 
@@ -1179,8 +1196,20 @@ private:
 
   // Static methods that are used to implement member methods where an exposed this pointer
   // is needed due to possible GCs
+
+  // 类的连接（验证，准备，解析）
+  // 在对类执行连接的相关操作时，使用ObjectLocker锁保证任何时候只有一个线程在执行某个类的连接操作，执行完成后更新类的状态，
+  // 这样就能避免重复对类进行连接操作了。
+  // 1.连接父类和实现的接口，子类在连接之前要保证父类和接口已经连接。
+  // 2.进行字节码验证。
+  // 3.重写类。
+  // 4.连接方法。
+  // 5.初始化vtable和itable。
+  // 以上步骤执行完成后将表示类状态的_init_state属性标记为已连接状态。
   static bool link_class_impl                           (instanceKlassHandle this_oop, bool throw_verifyerror, TRAPS);
+  // 字节码校验
   static bool verify_code                               (instanceKlassHandle this_oop, bool throw_verifyerror, TRAPS);
+  // 初始化类
   static void initialize_impl                           (instanceKlassHandle this_oop, TRAPS);
   static void eager_initialize_impl                     (instanceKlassHandle this_oop);
   static void set_initialization_state_and_notify_impl  (instanceKlassHandle this_oop, ClassState state, TRAPS);

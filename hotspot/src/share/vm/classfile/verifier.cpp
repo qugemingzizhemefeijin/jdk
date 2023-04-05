@@ -108,6 +108,15 @@ bool Verifier::relax_verify_for(oop loader) {
   return !need_verify;
 }
 
+// 校验字节码
+
+// JDK 6之后的Javac编译器给方法体的Code属性的属性表中增加了一项名为Stack-MapTable的属性，
+// 通过这项属性进行类型检查验证比类型推导验证的字节码验证过程更快。
+
+// 对于主版本号小于51的Class文件（确切来说只有50这个版本）来说，可以采用类型检查验证，如果失败，还可以回退到类型推导验证。
+// 对于主版本号大于等于51的Class文件来说，只能采用类型检查验证，而不再允许回退到类型推导验证。
+
+// 验证阶段不是必需的，如果代码运行已经稳定，可以通过设置-Xverify:none参数关闭类验证，以减少虚拟机的类加载时间，从而提高运行效率。
 bool Verifier::verify(instanceKlassHandle klass, Verifier::Mode mode, bool should_verify_class, TRAPS) {
   HandleMark hm;
   ResourceMark rm(THREAD);
@@ -118,6 +127,9 @@ bool Verifier::verify(instanceKlassHandle klass, Verifier::Mode mode, bool shoul
   char* exception_message = message_buffer;
 
   const char* klassName = klass->external_name();
+
+  // can_failover表示失败回退，对于小于NOFAILOVER_MAJOR_VERSION主版本号（值为51）的Class文件，可以使用StackMapTable属性进行验证，
+  // 这是类型检查，之前的是类型推导验证。如果can_failover的值为true，则表示类型检查失败时可回退使用类型推导验证。
   bool can_failover = FailOverToOldVerifier &&
       klass->major_version() < NOFAILOVER_MAJOR_VERSION;
 
@@ -128,7 +140,9 @@ bool Verifier::verify(instanceKlassHandle klass, Verifier::Mode mode, bool shoul
     if (TraceClassInitialization) {
       tty->print_cr("Start class verification for: %s", klassName);
     }
+    // STACKMAP_ATTRIBUTE_MAJOR_VERSION的值为50
     if (klass->major_version() >= STACKMAP_ATTRIBUTE_MAJOR_VERSION) {
+      // 使用类型检查，如果失败，则使用类型推导验证
       ClassVerifier split_verifier(klass, THREAD);
       split_verifier.verify_class(THREAD);
       exception_name = split_verifier.result();
@@ -139,6 +153,8 @@ bool Verifier::verify(instanceKlassHandle klass, Verifier::Mode mode, bool shoul
           tty->print_cr(
             "Fail over class verification to old verifier for: %s", klassName);
         }
+        // 只有主版本号大于等于50并且can_failover为true时才会执行到这里，can_failover为true时表示主版本号必定小于51，
+        // 因此只有50版本允许回退到类型推导验证
         exception_name = inference_verify(
           klass, message_buffer, message_buffer_len, THREAD);
       }
@@ -146,6 +162,7 @@ bool Verifier::verify(instanceKlassHandle klass, Verifier::Mode mode, bool shoul
         exception_message = split_verifier.exception_message();
       }
     } else {
+      // 使用类型推导验证
       exception_name = inference_verify(
           klass, message_buffer, message_buffer_len, THREAD);
     }

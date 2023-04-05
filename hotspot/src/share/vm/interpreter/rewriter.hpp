@@ -37,6 +37,8 @@ class Rewriter: public StackObj {
   instanceKlassHandle _klass;
   constantPoolHandle  _pool;
   Array<Method*>*     _methods;
+  // cp_map数组的下标就是常量池项索引，通过此索引可直接获取常量池缓存项索引，也就是cp_cache_map栈的槽位索引。
+  // 通过cp_cache_map的常量池缓存项索引可直接获取常量池项索引。
   intArray            _cp_map;
   intStack            _cp_cache_map;        // for Methodref, Fieldref,
                                             // InterfaceMethodref and InvokeDynamic
@@ -58,12 +60,17 @@ class Rewriter: public StackObj {
   GrowableArray<int>*     _patch_invokedynamic_refs;
 
   void init_maps(int length) {
+    // _cp_map是整数类型数组，长度和常量池项的总数相同，因此可以直接将常量池项的索引作为数组下标来获取常量池缓存项的索引
     _cp_map.initialize(length, -1);
     // Choose an initial value large enough that we don't get frequent
     // calls to grow().
+    // _cp_cache_map是整数类型栈，初始化容量的大小为常量池项总数的一半因为并不是所有的常量池项都需要生成常量池项索引，
+    // 向栈中压入常量池项后生成常量池缓存项的索引，通过常量池索引项可以找到常量池项索引
     _cp_cache_map.initialize(length/2);
     // Also cache resolved objects, in another different cache.
+    // _reference_map是整数类型数组
     _reference_map.initialize(length, -1);
+    // _resolved_references_map是整数类型的栈
     _resolved_references_map.initialize(length/2);
     _invokedynamic_references_map.initialize(length/2);
     _resolved_reference_limit = -1;
@@ -79,7 +86,9 @@ class Rewriter: public StackObj {
   void record_map_limits() {
     // Record initial size of the two arrays generated for the CP cache
     // relative to walking the constant pool.
+    // _cp_cache_map是整数类型的栈
     _first_iteration_cp_cache_limit = _cp_cache_map.length();
+    // _resolved_references_map是整数类型的数组
     _resolved_reference_limit = _resolved_references_map.length();
   }
 
@@ -95,8 +104,9 @@ class Rewriter: public StackObj {
 
   int add_map_entry(int cp_index, intArray* cp_map, intStack* cp_cache_map) {
     assert(cp_map->at(cp_index) == -1, "not twice on same cp_index");
+    // cp_cache_map是整数类型的栈
     int cache_index = cp_cache_map->append(cp_index);
-    cp_map->at_put(cp_index, cache_index);
+    cp_map->at_put(cp_index, cache_index); // cp_map是整数类型的数组
     return cache_index;
   }
 
@@ -187,14 +197,22 @@ class Rewriter: public StackObj {
   // All the work goes in here:
   Rewriter(instanceKlassHandle klass, constantPoolHandle cpool, Array<Method*>* methods, TRAPS);
 
+  // 生成常量池缓存项索引
   void compute_index_maps();
+  // 创建常量池缓存
   void make_constant_pool_cache(TRAPS);
+  // 重写方法的字节码指令
+  // 有些字节码指令的操作数在Class文件里与运行时不同，因为HotSpot VM在连接类的时候会对部分字节码进行重写，
+  // 把某些指令的操作数从常量池下标改写为常量池缓存下标。之所以创建常量池缓存，部分原因是这些指令所需要引用的信息无法使用一个常量池项来表示，
+  // 而需要使用一个更大的数据结构表示常量池项的内容，另外也是为了不破坏原有的常量池信息。
   void scan_method(Method* m, bool reverse, bool* invokespecial_error);
   void rewrite_Object_init(methodHandle m, TRAPS);
   void rewrite_member_reference(address bcp, int offset, bool reverse);
   void maybe_rewrite_invokehandle(address opc, int cp_index, int cache_index, bool reverse);
   void rewrite_invokedynamic(address bcp, int offset, bool reverse);
+  // 可能会重写ldc指令和指令的操作数，也就是常量池索引
   void maybe_rewrite_ldc(address bcp, int offset, bool is_wide, bool reverse);
+  // 由于invokespecial指令调用的是private方法和构造方法，因此在编译阶段就确定最终调用的目标而不用进行动态分派。
   void rewrite_invokespecial(address bcp, int offset, bool reverse, bool* invokespecial_error);
 
   void patch_invokedynamic_bytecodes();

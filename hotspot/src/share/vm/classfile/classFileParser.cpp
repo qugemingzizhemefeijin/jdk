@@ -3834,11 +3834,11 @@ instanceKlassHandle ClassFileParser::parseClassFile(Symbol* name,
 
   // Save the class file name for easier error message printing.
   _class_name = (name != NULL) ? name : vmSymbols::unknown_class_name();
-
+  // 验证当前的文件流至少有8字节的内容
   cfs->guarantee_more(8, CHECK_(nullHandle));  // magic, major, minor
   // Magic value // 解析魔数
   u4 magic = cfs->get_u4_fast();
-  // 验证魔数
+  // 验证magic的值必须为0xCAFEBABY
   guarantee_property(magic == JAVA_CLASSFILE_MAGIC,
                      "Incompatible magic value %u in class file %s",
                      magic, CHECK_(nullHandle));
@@ -3848,6 +3848,7 @@ instanceKlassHandle ClassFileParser::parseClassFile(Symbol* name,
   u2 major_version = cfs->get_u2_fast();
 
   // Check version numbers - we check this even with verifier off
+  // 验证当前虚拟机是否支持此Class文件的版本
   if (!is_supported_version(major_version, minor_version)) {
     if (name == NULL) {
       Exceptions::fthrow(
@@ -4023,7 +4024,7 @@ instanceKlassHandle ClassFileParser::parseClassFile(Symbol* name,
       if (super_klass->has_default_methods()) {
         has_default_methods = true;
       }
-
+      // 保证父类不为接口
       if (super_klass->is_interface()) {
         ResourceMark rm(THREAD);
         Exceptions::fthrow(
@@ -4036,6 +4037,7 @@ instanceKlassHandle ClassFileParser::parseClassFile(Symbol* name,
         return nullHandle;
       }
       // Make sure super class is not final
+      // 保证父类不为final类
       if (super_klass->is_final()) {
         THROW_MSG_(vmSymbols::java_lang_VerifyError(), "Cannot inherit from final class", nullHandle);
       }

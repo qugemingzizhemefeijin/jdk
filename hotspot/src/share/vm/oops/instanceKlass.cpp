@@ -456,6 +456,7 @@ void InstanceKlass::deallocate_contents(ClassLoaderData* loader_data) {
   set_annotations(NULL);
 }
 
+// 判断类是否需要被初始化
 bool InstanceKlass::should_be_initialized() const {
   return !is_initialized();
 }
@@ -558,7 +559,10 @@ void InstanceKlass::eager_initialize_impl(instanceKlassHandle this_oop) {
 // See "The Virtual Machine Specification" section 2.16.5 for a detailed explanation of the class initialization
 // process. The step comments refers to the procedure described in that section.
 // Note: implementation moved to static method to expose the this pointer.
+
+// 类初始化入口
 void InstanceKlass::initialize(TRAPS) {
+  // 类的状态不为fully_initialized时， 需要进行初始化
   if (this->should_be_initialized()) {
     HandleMark hm(THREAD);
     instanceKlassHandle this_oop(THREAD, this);
@@ -567,16 +571,18 @@ void InstanceKlass::initialize(TRAPS) {
     //       OR it may be in the state of being initialized
     //       in case of recursive initialization!
   } else {
+    // 类的状态为fully_initialized
     assert(is_initialized(), "sanity check");
   }
 }
 
-
+// 校验字节码是否符合规范。
 bool InstanceKlass::verify_code(
     instanceKlassHandle this_oop, bool throw_verifyerror, TRAPS) {
   // 1) Verify the bytecodes
   Verifier::Mode mode =
     throw_verifyerror ? Verifier::ThrowException : Verifier::NoException;
+  // hotspot/src/share/vm/classfile/verifier.cpp 111行
   return Verifier::verify(this_oop, mode, this_oop->should_verify_class(), CHECK_false);
 }
 
@@ -610,6 +616,13 @@ bool InstanceKlass::link_class_or_fail(TRAPS) {
   return is_linked();
 }
 
+
+// 1.连接父类和实现的接口，子类在连接之前要保证父类和接口已经连接。
+// 2.进行字节码验证。
+// 3.重写类。
+// 4.连接方法。
+// 5.初始化vtable和itable。
+// 以上步骤执行完成后将表示类状态的_init_state属性标记为已连接状态。
 bool InstanceKlass::link_class_impl(
     instanceKlassHandle this_oop, bool throw_verifyerror, TRAPS) {
   // check for error state
@@ -619,6 +632,7 @@ bool InstanceKlass::link_class_impl(
                this_oop->external_name(), false);
   }
   // return if already verified
+  // 通过_init_state属性的值判断类是否已经连接，如果已经连接，直接返回
   if (this_oop->is_linked()) {
     return true;
   }
@@ -629,6 +643,7 @@ bool InstanceKlass::link_class_impl(
   JavaThread* jt = (JavaThread*)THREAD;
 
   // link super class before linking this class
+  // 在连接子类之前必须先连接父类
   instanceKlassHandle super(THREAD, this_oop->super());
   if (super.not_null()) {
     if (super->is_interface()) {  // check if super class is an interface
@@ -642,20 +657,23 @@ bool InstanceKlass::link_class_impl(
       );
       return false;
     }
-
+    // 递归调用当前函数进行父类的连接
     link_class_impl(super, throw_verifyerror, CHECK_false);
   }
 
   // link all interfaces implemented by this class before linking this class
+  // 在连接当前类之前连接当前类实现的所有接口
   Array<Klass*>* interfaces = this_oop->local_interfaces();
   int num_interfaces = interfaces->length();
   for (int index = 0; index < num_interfaces; index++) {
     HandleMark hm(THREAD);
     instanceKlassHandle ih(THREAD, interfaces->at(index));
+    // 递归调用当前函数进行接口连接
     link_class_impl(ih, throw_verifyerror, CHECK_false);
   }
 
   // in case the class is linked in the process of linking its superclasses
+  // 在处理父类连接的过程中可能会导致当前类被连接，如果当前类已经连接，则直接返回
   if (this_oop->is_linked()) {
     return true;
   }
@@ -670,7 +688,10 @@ bool InstanceKlass::link_class_impl(
                              PerfClassTraceTime::CLASS_LINK);
 
   // verification & rewriting
+  // 接下来会完成类的验证和重写逻辑
   {
+    // 在对类执行连接的相关操作时，使用ObjectLocker锁保证任何时候只有一个线程在执行某个类的连接操作，
+    // 执行完成后更新类的状态，这样就能避免重复对类进行连接操作了。
     oop init_lock = this_oop->init_lock();
     ObjectLocker ol(init_lock, THREAD, init_lock != NULL);
     // rewritten will have been set if loader constraint error found
@@ -688,6 +709,7 @@ bool InstanceKlass::link_class_impl(
                                    jt->get_thread_stat()->perf_recursion_counts_addr(),
                                    jt->get_thread_stat()->perf_timers_addr(),
                                    PerfClassTraceTime::CLASS_VERIFY);
+          // 进行字节码验证
           bool verify_ok = verify_code(this_oop, throw_verifyerror, THREAD);
           if (!verify_ok) {
             return false;
@@ -697,21 +719,25 @@ bool InstanceKlass::link_class_impl(
         // Just in case a side-effect of verify linked this class already
         // (which can sometimes happen since the verifier loads classes
         // using custom class loaders, which are free to initialize things)
+        // 有时候在验证的过程中会导致类的连接，不过并不会进行类的初始化
         if (this_oop->is_linked()) {
           return true;
         }
 
         // also sets rewritten
+        // 重写类
         this_oop->rewrite_class(CHECK_false);
       }
 
       // relocate jsrs and link methods after they are all rewritten
+      // 完成类的重写后进行方法连接
       this_oop->link_methods(CHECK_false);
 
       // Initialize the vtable and interface table after
       // methods have been rewritten since rewrite may
       // fabricate new Method*s.
       // also does loader constraint checking
+      // 初始化vtable和itable
       if (!this_oop()->is_shared()) {
         ResourceMark rm(THREAD);
         // 创建并初始化klassVtable
@@ -727,14 +753,15 @@ bool InstanceKlass::link_class_impl(
         // this_oop->itable()->verify(tty, true);
       }
 #endif
+      // 将表示类状态的_init_state属性标记为已连接状态
       this_oop->set_init_state(linked);
       if (JvmtiExport::should_post_class_prepare()) {
         Thread *thread = THREAD;
         assert(thread->is_Java_thread(), "thread->is_Java_thread()");
         JvmtiExport::post_class_prepare((JavaThread *) thread, this_oop());
       }
-    }
-  }
+    } // 结束类的连接
+  } // 结束类的验证和重写逻辑
   return true;
 }
 
@@ -749,7 +776,10 @@ void InstanceKlass::rewrite_class(TRAPS) {
     assert(this_oop()->is_shared(), "rewriting an unshared class?");
     return;
   }
+  // Rewriter类是专门为重写而创建的类，这个类中提供了许多用于重写字节码的函数。
+  // hotspot/src/share/vm/interpreter/rewriter.cpp
   Rewriter::rewrite(this_oop, CHECK);
+  // 重写完成后调用set_rewritten()函数记录重写完成的状态，保证任何类只会被重写一次。
   this_oop->set_rewritten();
 }
 
@@ -757,11 +787,14 @@ void InstanceKlass::rewrite_class(TRAPS) {
 // This is outside is_rewritten flag. In case of an exception, it can be
 // executed more than once.
 void InstanceKlass::link_methods(TRAPS) {
+  // 在连接方法之前，要保证所属的类已经完成连接。
   int len = methods()->length();
   for (int i = len-1; i >= 0; i--) {
     methodHandle m(THREAD, methods()->at(i));
 
     // Set up method entry points for compiler and interpreter    .
+    // 调用link_method()函数为方法设置执行入口，之后就可以解释执行和编译执行了
+    // hotspot/src/share/vm/oops/method.cpp 867行
     m->link_method(m, CHECK);
 
     // This is for JVMTI and unrelated to relocator but the last thing we do
@@ -783,10 +816,11 @@ void InstanceKlass::link_methods(TRAPS) {
   }
 }
 
-
+// 类初始化，从initialize()函数调入
 void InstanceKlass::initialize_impl(instanceKlassHandle this_oop, TRAPS) {
   // Make sure klass is linked (verified) before initialization
   // A class could already be verified, since it has been reflected upon.
+  // 类的连接
   this_oop->link_class(CHECK);
 
   DTRACE_CLASSINIT_PROBE(required, InstanceKlass::cast(this_oop()), -1);
@@ -795,6 +829,7 @@ void InstanceKlass::initialize_impl(instanceKlassHandle this_oop, TRAPS) {
 
   // refer to the JVM book page 47 for description of steps
   // Step 1
+  // 步骤1： 在初始化之前， 通过ObjectLocker加锁， 防止多个线程并发初始化
   {
     oop init_lock = this_oop->init_lock();
     ObjectLocker ol(init_lock, THREAD, init_lock != NULL);
@@ -805,24 +840,38 @@ void InstanceKlass::initialize_impl(instanceKlassHandle this_oop, TRAPS) {
     // If we were to use wait() instead of waitInterruptibly() then
     // we might end up throwing IE from link/symbol resolution sites
     // that aren't expected to throw.  This would wreak havoc.  See 6320309.
-    while(this_oop->is_being_initialized() && !this_oop->is_reentrant_initialization(self)) {
+    // 步骤2： 如果当前instanceKlassHandle正在初始化且初始化线程不是当前线程，则执行ol.waitUninterruptibly()函数，等待其他线程初始化完成后通知。
+    while(
+        // 类正在进行初始化（being_initialized状态）
+        this_oop->is_being_initialized() &&
+        // 执行初始化的线程不是当前线程
+        !this_oop->is_reentrant_initialization(self)) {
         wait = true;
       ol.waitUninterruptibly(CHECK);
     }
 
     // Step 3
-    if (this_oop->is_being_initialized() && this_oop->is_reentrant_initialization(self)) {
+    // 步骤3： 当前类正在被当前线程初始化。
+    // 例如，如果X类有静态变量指向new Y类实例，Y类中又有静态变量指向new X类实例，
+    // 这样外部在调用X时需要初始化X类，初始化过程中又要触发Y类的初始化，而Y类初始化又再次触发X类的初始化
+    if (
+        // 类正在进行初始化（being_initialized状态）
+        this_oop->is_being_initialized() &&
+        // 执行初始化的线程就是当前线程
+        this_oop->is_reentrant_initialization(self)) {
       DTRACE_CLASSINIT_PROBE_WAIT(recursive, InstanceKlass::cast(this_oop()), -1,wait);
       return;
     }
 
     // Step 4
+    // 步骤4： 类已经初始化完成（fully_initialized状态）
     if (this_oop->is_initialized()) {
       DTRACE_CLASSINIT_PROBE_WAIT(concurrent, InstanceKlass::cast(this_oop()), -1,wait);
       return;
     }
 
     // Step 5
+    // 步骤5： 类的初始化出错（initialization_error状态），抛出NoClassDefFoundError异常
     if (this_oop->is_in_error_state()) {
       DTRACE_CLASSINIT_PROBE_WAIT(erroneous, InstanceKlass::cast(this_oop()), -1,wait);
       ResourceMark rm(THREAD);
@@ -832,6 +881,7 @@ void InstanceKlass::initialize_impl(instanceKlassHandle this_oop, TRAPS) {
       char* message = NEW_RESOURCE_ARRAY(char, msglen);
       if (NULL == message) {
         // Out of memory: can't create detailed error message
+        // 内存溢出，无法创建详细的异常信息
         THROW_MSG(vmSymbols::java_lang_NoClassDefFoundError(), className);
       } else {
         jio_snprintf(message, msglen, "%s%s", desc, className);
@@ -840,13 +890,18 @@ void InstanceKlass::initialize_impl(instanceKlassHandle this_oop, TRAPS) {
     }
 
     // Step 6
+    // 步骤6： 设置类的初始化状态为being_initialized，设置初始化的线程为当前线程
     this_oop->set_init_state(being_initialized);
     this_oop->set_init_thread(self);
   }
 
   // Step 7
+  // 步骤7： 如果当前初始化的不是接口和父类不为空并且父类未初始化，则初始化其父类
   Klass* super_klass = this_oop->super();
-  if (super_klass != NULL && !this_oop->is_interface() && super_klass->should_be_initialized()) {
+  if (super_klass != NULL &&
+    !this_oop->is_interface() &&
+    // 判断super_klass的状态是否为fully_initialized，如果是，则should_be_initialized()方法将返回true
+    super_klass->should_be_initialized()) {
     super_klass->initialize(THREAD);
 
     if (HAS_PENDING_EXCEPTION) {
@@ -864,6 +919,7 @@ void InstanceKlass::initialize_impl(instanceKlassHandle this_oop, TRAPS) {
 
   if (this_oop->has_default_methods()) {
     // Step 7.5: initialize any interfaces which have default methods
+    // 步骤7.5: 初始化有默认方法的接口
     for (int i = 0; i < this_oop->local_interfaces()->length(); ++i) {
       Klass* iface = this_oop->local_interfaces()->at(i);
       InstanceKlass* ik = InstanceKlass::cast(iface);
@@ -892,6 +948,7 @@ void InstanceKlass::initialize_impl(instanceKlassHandle this_oop, TRAPS) {
   }
 
   // Step 8
+  // 步骤8： 执行类或接口的初始化方法<clinit>
   {
     assert(THREAD->is_Java_thread(), "non-JavaThread in initialize_impl");
     JavaThread* jt = (JavaThread*)THREAD;
@@ -904,10 +961,12 @@ void InstanceKlass::initialize_impl(instanceKlassHandle this_oop, TRAPS) {
                              jt->get_thread_stat()->perf_recursion_counts_addr(),
                              jt->get_thread_stat()->perf_timers_addr(),
                              PerfClassTraceTime::CLASS_CLINIT);
+    // 调用类静态块和初始化静态属性
     this_oop->call_class_initializer(THREAD);
   }
 
   // Step 9
+  // 步骤9： 如果初始化过程没有异常，说明已经完成了初始化。设置类的状态为full_initialized，并通知其他线程初始化已经完成
   if (!HAS_PENDING_EXCEPTION) {
     this_oop->set_initialization_state_and_notify(fully_initialized, CHECK);
     { ResourceMark rm(THREAD);
@@ -916,6 +975,8 @@ void InstanceKlass::initialize_impl(instanceKlassHandle this_oop, TRAPS) {
   }
   else {
     // Step 10 and 11
+    // 步骤10和11： 如果初始化过程发生异常，则通过set_initialization_state_and_notify()方法设置类的状态为initialization_error。
+    // 并通知其他线程，然后抛出错误或异常
     Handle e(THREAD, PENDING_EXCEPTION);
     CLEAR_PENDING_EXCEPTION;
     {
