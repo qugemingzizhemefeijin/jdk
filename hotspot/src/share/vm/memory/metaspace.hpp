@@ -367,6 +367,8 @@ class MetaspaceAux : AllStatic {
 // This class implements a policy for inducing GC's to recover
 // Metaspaces.
 
+// 此类不是像类名一样用来对Metaspace执行GC的，仅仅用来维护属性_capacity_until_GC，当Metaspace的已分配内存值达到该属性就会触发GC，
+// GC结束后_capacity_until_GC的值会增加直到达到参数MaxMetaspaceSize设置的Metaspace的最大值。
 class MetaspaceGC : AllStatic {
 
   // The current high-water-mark for inducing a GC.
@@ -385,6 +387,7 @@ class MetaspaceGC : AllStatic {
 
  public:
 
+  // 此方法是在 universe_init() -> Metaspace::global_initialize() 中被触发
   static void initialize() { _capacity_until_GC = MetaspaceSize; }
 
   static size_t capacity_until_GC();
