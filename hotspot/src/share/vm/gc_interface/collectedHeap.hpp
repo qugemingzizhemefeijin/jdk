@@ -81,6 +81,9 @@ class GCHeapLog : public EventLogBase<GCMessage> {
 //     G1CollectedHeap
 //   ParallelScavengeHeap
 //
+
+// CollectedHeap是一个抽象基类，表示一个Java堆，定义了各种垃圾收集器必须实现的公共接口，
+// 这些接口就是上层用来创建Java对象、分配TLAB、获取Java堆使用情况的统一API。
 class CollectedHeap : public CHeapObj<mtInternal> {
   friend class VMStructs;
   friend class IsGCActiveMark; // Block structured external access to _is_gc_active
@@ -98,8 +101,8 @@ class CollectedHeap : public CHeapObj<mtInternal> {
   bool _defer_initial_card_mark;
 
  protected:
-  MemRegion _reserved;
-  BarrierSet* _barrier_set;
+  MemRegion _reserved;                                                  // 为当前堆分配的内存区域
+  BarrierSet* _barrier_set;                                             // 屏障，用于标记脏卡
   bool _is_gc_active;
   uint _n_par_threads;
 

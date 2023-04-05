@@ -58,6 +58,7 @@ class GCPolicyCounters;
 class MarkSweepPolicy;
 
 // 该类及其子类用于定义垃圾回收器使用的全局属性，并初始化分代内存及其他共享资源。
+// 用于根据虚拟机启动的参数分配heap堆的大小，以及将heap堆分成大小不同的区（比如年轻代和老年代），并且对不同的区定义不同的Generation的规范。
 class CollectorPolicy : public CHeapObj<mtGC> {
  protected:
   GCPolicyCounters* _gc_policy_counters;
@@ -100,6 +101,9 @@ class CollectorPolicy : public CHeapObj<mtGC> {
 
  public:
   virtual void initialize_all() {
+    // 下面的三个方法均是虚函数，所以需要从实际的策略对象来看。
+    // 如果使用了MarkSweepPolicy，我们就需要去这个类中查看这三个方法的实现。
+
     // 用来初始化分代内存及内存分配相关属性的，没有默认实现
     initialize_alignments();
     // 主要用于校验参数的合法性，并设置相关参数
@@ -228,12 +232,14 @@ class ClearedAllSoftRefs : public StackObj {
 // GenCollectorPolicy继承自CollectorPolicy，表示分代内存使用的CollectorPolicy
 class GenCollectorPolicy : public CollectorPolicy {
  protected:
+  // 保存分代中第一个代的最小值、初始值和最大值，任何分代堆都至少会有一个代。如果有多个代，则当前表示的是最年轻的代。
   size_t _min_gen0_size;            // gen0的内存最小值
   size_t _initial_gen0_size;        // gen0的内存初始值
   size_t _max_gen0_size;            // gen0的内存最大值
 
   // _gen_alignment and _space_alignment will have the same value most of the
   // time. When using large pages they can differ.
+  // _gen_alignment一般和_space_alignment相同，MarkSweepPolicy::initialize_alignments()函数也是将两个属性赋予了相同的值
   size_t _gen_alignment;            // 分代内存分配粒度，_gen_alignment必须被_space_alignment整除，- _heap_alignment被_gen_alignment整除
 
   GenerationSpec **_generations;    // 一种特殊的Generation实现
@@ -286,7 +292,9 @@ class GenCollectorPolicy : public CollectorPolicy {
   virtual void initialize_generations() { };
 
   virtual void initialize_all() {
+    // 初始化一些属性，尤其是与内存大小相关的一些属性
     CollectorPolicy::initialize_all();
+    // 初始化堆
     initialize_generations();
   }
 
@@ -316,6 +324,7 @@ class GenCollectorPolicy : public CollectorPolicy {
 // of CollectorPolicy, this class should be broken out into
 // its own file.
 
+// TwoGenerationCollectorPolicy中声明的变量主要是保存老年代的最小值、初始值和最大值。
 class TwoGenerationCollectorPolicy : public GenCollectorPolicy {
  protected:
   size_t _min_gen1_size;
@@ -323,6 +332,11 @@ class TwoGenerationCollectorPolicy : public GenCollectorPolicy {
   size_t _max_gen1_size;
 
   void initialize_flags();
+
+  // 调用各个类的initialize_size_info()函数确定年轻代与老年代内存的最小值、初始值和最大值，在调用该函数之前，由于已经调用过initialize_flags()函数，
+  // 整个堆的最小值、初始值和最大值已经确定，所以代的内存计算必须要限制在堆的当前内存空间之内。
+  // TwoGenerationCollectorPolicy::initialize_size_info -> GenCollectorPolicy::initialize_size_info -> CollectorPolicy::initialize_size_info
+  // CollectorPolicy::initialize_size_info 是空的，只有打印信息。所以主要的逻辑在其两个子类中。
   void initialize_size_info();
 
   DEBUG_ONLY(void assert_flags();)

@@ -31,6 +31,8 @@
 // some generation-specific behavior.  This is done here rather than as a
 // virtual function of Generation because these methods are needed in
 // initialization of the Generations.
+
+// GenerationSpec主要是根据不同的类型使用不同的Generation的方式，这个类型是由CollectionPolicy在初始化GenerationSpec时指定的。
 class GenerationSpec : public CHeapObj<mtGC> {
   friend class VMStructs;
 private:

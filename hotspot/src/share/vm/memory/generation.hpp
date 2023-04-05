@@ -84,11 +84,25 @@ struct ScratchBlock {
                               // first two fields are word-sized.)
 };
 
+// Generation：公有结构，保存上次GC耗时、该代的内存起始地址和GC性能计数。
+// DefNewGeneration：一种包含Eden、From survivor和To survivor的分代。
+// CardGeneration： 包含卡表（CardTable）的分代，由于年轻代在回收时需要标记出年轻代的存活对象，所以还需要以老年代为根进行标记。
+//                  为了避免全量扫描，通过卡表来加快标记速度。
+// OneContigSpaceCardGeneration： 包含卡表的连续内存的分代。
+// TenuredGeneration： 可Mark-Compact（标记-压缩）的卡表代。
 
+// Generation类在HotSpot VM中采用的是分代回收算法，在Serial收集器下可表示年轻代或老年代。上面点的注释有继承关系。
+
+// Java堆回收策略：
+// 1.MarkSweepPolicy是串行GC（Serial与Serial Old）的标配，目前只能用于基于内存分代管理的内存堆管理器（GenCollectedHeap）的GC策略。
+// 2.并行“标记-清除”GC策略（ConcurrentMarkSweepPolicy），也就是通常所说的CMS；
+// 3.可自动调整各内存代大小的并行“标记-清除”GC策略（ASConcurrentMarkSweep-Policy）。
 class Generation: public CHeapObj<mtGC> {
   friend class VMStructs;
  private:
+  // 记录最后一次GC在这个代上发生的时间
   jlong _time_of_last_gc; // time when last gc on this generation happened (ms)
+  // 回收器需要在某些时刻记住当时已经被使用的内存总量
   MemRegion _prev_used_region; // for collectors that want to "remember" a value for
                                // used region at some specific point during collection.
 
@@ -97,15 +111,18 @@ class Generation: public CHeapObj<mtGC> {
   // committed) for generation.
   // Used by card marking code. Must not overlap with address ranges of
   // other generations.
+  // 保存了内存区域的基址和大小，主要在卡标记的过程中使用
   MemRegion _reserved;
 
   // Memory area reserved for generation
+  // 为代预留的内存区域
   VirtualSpace _virtual_space;
 
   // Level in the generation hierarchy.
   int _level;
 
   // ("Weak") Reference processing support
+  // 对于引用处理的支持
   ReferenceProcessor* _ref_processor;
 
   // Performance Counters
@@ -621,17 +638,22 @@ public:
 // class BlockOffsetArrayContigSpace;
 class BlockOffsetSharedArray;
 
+// 包含卡表（CardTable）的分代，由于年轻代在回收时需要标记出年轻代的存活对象，所以还需要以老年代为根进行标记。为了避免全量扫描，通过卡表来加快标记速度。
 class CardGeneration: public Generation {
   friend class VMStructs;
  protected:
   // This is shared with other generations.
+  // 卡表，加快找到老年代引用的年轻代对象
   GenRemSet* _rs;
   // This is local to this generation.
+  // 偏移表，与卡表配合加快找到老年代引用的年轻代对象
   BlockOffsetSharedArray* _bts;
 
   // current shrinking effect: this damps shrinking when the heap gets empty.
+  // 当堆空闲过多时会参考收缩因子进行收缩
   size_t _shrink_factor;
 
+  // 扩展一次内存堆时的最小内存
   size_t _min_heap_delta_bytes;   // Minimum amount to expand.
 
   // Some statistics from before gc started.

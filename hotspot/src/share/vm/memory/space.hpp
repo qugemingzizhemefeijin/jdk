@@ -112,14 +112,15 @@ class SpaceMemRegionOopsIterClosure: public ExtendedOopClosure {
 // bottom() <= top() <= end()
 // top() is inclusive and end() is exclusive.
 
+// Space是内存区间的基类，支持内存分配、内存空间计算和垃圾回收
 class Space: public CHeapObj<mtGC> {
   friend class VMStructs;
  protected:
-  HeapWord* _bottom;
-  HeapWord* _end;
+  HeapWord* _bottom;                    // 内存区间的首地址
+  HeapWord* _end;                       // 内存区间的尾地址
 
   // Used in support of save_marks()
-  HeapWord* _saved_mark_word;
+  HeapWord* _saved_mark_word;           // 辅助进行垃圾回收
 
   MemRegionClosure* _preconsumptionDirtyCardClosure;
 
@@ -398,11 +399,14 @@ public:
 // free-list-based space whose normal collection is a mark-sweep without
 // compaction could still support compaction in full GC's.
 
+// 增加了压缩操作，即在垃圾回收后通过复制并移动Java对象的位置来减少Space内部的内存空白和碎片问题，提升内存利用率。
 class CompactibleSpace: public Space {
   friend class VMStructs;
   friend class CompactibleFreeListSpace;
 private:
+  // 保存需要移动的对象所占用的内存空间，即从 _bottom 到 _compaction_top 之间的内存都被分配给那些需要移动的对象
   HeapWord* _compaction_top;
+  // 下一个支持压缩操作的Space实例，如果当前的Space实例没有足够的空间保存需要移动的对象就会切换到_next_compaction_space中保存移动的对象
   CompactibleSpace* _next_compaction_space;
 
 public:
@@ -485,7 +489,9 @@ public:
 
 protected:
   // Used during compaction.
+  // 第一个deadspace的起始地址，没有被标记的对象的内存区域或者非Java对象的内存区域都视为deadspace
   HeapWord* _first_dead;
+  // 最后一个连续的被标记为活跃对象的内存区域的终止地址
   HeapWord* _end_of_live;
 
   // Minimum size of a free block.
@@ -779,10 +785,12 @@ class GenSpaceMangler;
 
 // A space in which the free area is contiguous.  It therefore supports
 // faster allocation, and compaction.
+// 表示空间是连接的，这样就能支持快速地进行内存分配和压缩操作。
 class ContiguousSpace: public CompactibleSpace {
   friend class OneContigSpaceCardGeneration;
   friend class VMStructs;
  protected:
+  // Space实例表示的内存空间的起始地址，在分配内存时会从这个字段指向的地址开始分配。
   HeapWord* _top;
   HeapWord* _concurrent_iteration_safe_limit;
   // A helper for mangling the unused area of the space in debug builds.
@@ -1020,9 +1028,11 @@ public:
 
 class DefNewGeneration;
 
+// 表示Eden空间
 class EdenSpace : public ContiguousSpace {
   friend class VMStructs;
  private:
+  // 保存了此Eden区所归属的代，类型为DefNewGeneration，表示归属年轻代。
   DefNewGeneration* _gen;
 
   // _soft_end is used as a soft limit on allocation.  As soft limits are

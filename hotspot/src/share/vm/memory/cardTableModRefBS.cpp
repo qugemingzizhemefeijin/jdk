@@ -632,7 +632,9 @@ MemRegion CardTableModRefBS::dirty_card_range_after_reset(MemRegion mr,
 }
 
 uintx CardTableModRefBS::ct_max_alignment_constraint() {
-  return card_size * os::vm_page_size();
+  // 卡表通过1个字节标记老年代的512个字节中是否含有对年轻代对象的引用，通常，卡表的内存也是按页分配的，一个页面的大小为4096个字节，
+  // 那么要求堆的最大字节就应该按照512×4096=2MB进行对齐。
+  return card_size * os::vm_page_size();        // 512*4096
 }
 
 void CardTableModRefBS::verify_guard() {
