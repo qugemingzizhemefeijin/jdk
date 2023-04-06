@@ -79,6 +79,9 @@ class VirtualSpaceList;
 // allocate() method returns a block for use as a
 // quantum of metadata.
 
+// Metaspace表示用来给Klass等元数据分配内存的一个内存空间，通常称为元空间，每个ClassLoader实例包括启动类加载器都会创建一个对应的Metaspace实例，
+// 每个Metaspace实例都有一个SpaceManager实例，通过SpaceManager完成内存分配与管理。
+
 // 类的元数据信息被转移到了元空间中，保存类的元数据信息的Klass、Method、ConstMethod与ConstantPool等实例都是在元空间上分配内存。
 // Metaspace区域位于堆外，因此它的内存大小取决于系统内存而不是堆大小，我们可以指定MaxMetaspaceSize参数来限定它的最大内存。
 // Metaspace用来存放类的元数据信息，元数据信息用于记录一个Java类在JVM中的信息，包括以下几类信息：
@@ -140,6 +143,8 @@ class Metaspace : public CHeapObj<mtClass> {
   friend class MetaspaceAux;
 
  public:
+  // MetadataType表示元数据的类型，即只有两种Class相关的数据和非Class相关的数据。
+  // 设置这两个属性的目的是为了快速的获取指定类型的所有Metachunks的内存使用量和容量，避免遍历所有的classloaders。
   enum MetadataType {
     ClassType,
     NonClassType,
@@ -168,6 +173,7 @@ class Metaspace : public CHeapObj<mtClass> {
   static size_t align_word_size_up(size_t);
 
   // Aligned size of the metaspace.
+  // compressed class对应的Metaspace大小
   static size_t _compressed_class_space_size;
 
   static size_t compressed_class_space_size() {
@@ -179,16 +185,21 @@ class Metaspace : public CHeapObj<mtClass> {
 
   // 以下代码中定义的属性都是成对出现，因为元空间其实还有类指针压缩空间（Compressed Class Pointer Space），这两部分是相互独立的。
 
+  // 第一个NonClassType类型的MetaChunk的大小
   static size_t _first_chunk_word_size;
+  // 第一个ClassType类型的MetaChunk的大小
   static size_t _first_class_chunk_word_size;
 
+  // commit内存的粒度
   static size_t _commit_alignment;
+  // reserve内存的粒度
   static size_t _reserve_alignment;
 
-  // 被管理的SpaceManager实例，为类加载器管理分配的Metachunk块
+  // NonClassType类型的元数据对应的SpaceManager，为类加载器管理分配的Metachunk块
   SpaceManager* _vsm;
   SpaceManager* vsm() const { return _vsm; }
 
+  // ClassType类型的元数据对应的SpaceManager
   SpaceManager* _class_vsm;
   SpaceManager* class_vsm() const { return _class_vsm; }
 
@@ -199,10 +210,14 @@ class Metaspace : public CHeapObj<mtClass> {
   MetaWord* allocate(size_t word_size, MetadataType mdtype);
 
   // Virtual Space lists for both classes and other metadata
+  //  NonClassType类型的元数据对应的VirtualSpaceList
   static VirtualSpaceList* _space_list;
+  // ClassType类型的元数据对应的VirtualSpaceList
   static VirtualSpaceList* _class_space_list;
 
+  // NonClassType类型的元数据对应的ChunkManager
   static ChunkManager* _chunk_manager_metadata;
+  // ClassType类型的元数据对应的ChunkManager
   static ChunkManager* _chunk_manager_class;
 
  public:
@@ -246,7 +261,9 @@ class Metaspace : public CHeapObj<mtClass> {
     int _byte_size;
   };
 
+  // AllocRecord链表的头部元素
   AllocRecord * _alloc_record_head;
+  // AllocRecord链表的尾部元素
   AllocRecord * _alloc_record_tail;
 
   size_t class_chunk_size(size_t word_size);
@@ -256,7 +273,9 @@ class Metaspace : public CHeapObj<mtClass> {
   Metaspace(Mutex* lock, MetaspaceType type);
   ~Metaspace();
 
+  // 用于初始化Metaspace的各种参数，如MetaspaceSize，MaxMetaspaceSize，MinMetaspaceExpansion等
   static void ergo_initialize();
+  // 用于初始化_first_chunk_word_size，_space_list，_chunk_manager_metadata等静态属性
   static void global_initialize();
 
   static size_t first_chunk_word_size() { return _first_chunk_word_size; }
@@ -315,6 +334,9 @@ class Metaspace : public CHeapObj<mtClass> {
 
 };
 
+// 此类定义的属性和方法都是静态的。
+// 主要用于外部类获取Metaspace的内存使用情况，如获取Metaspace的当前最大容量的capacity_bytes方法，获取已使用空间大小的used_bytes方法，
+// 获取空闲的空间大小的free_bytes方法，获取已经分配内存的量的committed_bytes方法，获取保留的未分配内存的量的reserved_bytes方法。
 class MetaspaceAux : AllStatic {
   static size_t free_chunks_total_words(Metaspace::MetadataType mdtype);
 
@@ -425,19 +447,20 @@ class MetaspaceAux : AllStatic {
 // This class implements a policy for inducing GC's to recover
 // Metaspaces.
 
-// 此类不是像类名一样用来对Metaspace执行GC的，仅仅用来维护属性_capacity_until_GC，当Metaspace的已分配内存值达到该属性就会触发GC，
-// GC结束后_capacity_until_GC的值会增加直到达到参数MaxMetaspaceSize设置的Metaspace的最大值。
+// 此类不是像类名一样用来对Metaspace执行GC的，仅仅用来维护属性_capacity_until_GC
 class MetaspaceGC : AllStatic {
 
   // The current high-water-mark for inducing a GC.
   // When committed memory of all metaspaces reaches this value,
   // a GC is induced and the value is increased. Size is in bytes.
+  // 当Metaspace的已分配内存值达到该属性就会触发GC，GC结束后_capacity_until_GC的值会增加直到达到参数MaxMetaspaceSize设置的Metaspace的最大值。
   static volatile intptr_t _capacity_until_GC;
 
   // For a CMS collection, signal that a concurrent collection should
   // be started.
   static bool _should_concurrent_collect;
 
+  // 为了避免程序调用System.gc()触发的GC导致堆空间的再次分配，增加参数_shrink_factor，第一次GC时是0，即第一次GC时不会触发缩容，第二次是10，即最多只缩容10%,第三次是40%,第四次是100%
   static uint _shrink_factor;
 
   static size_t shrink_factor() { return _shrink_factor; }
@@ -449,6 +472,7 @@ class MetaspaceGC : AllStatic {
   static void initialize() { _capacity_until_GC = MetaspaceSize; }
 
   static size_t capacity_until_GC();
+
   static size_t inc_capacity_until_GC(size_t v);
   static size_t dec_capacity_until_GC(size_t v);
 
@@ -467,8 +491,8 @@ class MetaspaceGC : AllStatic {
   // measured in words.
   static size_t allowed_expansion();
 
-  // Calculate the new high-water mark at which to induce
-  // a GC.
+  // Calculate the new high-water mark at which to induce a GC.
+  // 用于在GC完成后根据设置的最低空闲比例MinMetaspaceFreeRatio和最大的空闲比例MaxMetaspaceFreeRatio计算一个新的_capacity_until_GC属性值，实现动态调整Metaspace大小的功能。
   static void compute_new_size();
 };
 

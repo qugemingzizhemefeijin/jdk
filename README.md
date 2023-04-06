@@ -138,6 +138,20 @@ int main() {
 
 ![avatar](img/findloadedClass_flow.png)
 
+### Metaspace内存结构图
+
+![avatar](img/metaspace/metaspace内存结构图.png)
+
+每个`VirtualSpaceNode`都对应一个表示一段连续内存空间的`ReservedSpace`和`VirtualSpace`，`VirtualSpaceNode`负责分配满足大小的`Metachunk`。`VirtualSpaceList`首先从当前使用的`VirtualSpaceNode`即`_current_virtual_space`中分配，当其空间不足时，`VirtualSpaceList`会创建一个新的`VirtualSpaceNode`，将旧的`VirtualSpaceNode`的剩余空间分配成若干个标准大小的`Metachunk`，保证其空间不浪费，然后将其插入到`VirtualSpaceList`的`_virtual_space_list`链表中，将其作为新的`VirtualSpaceNode`的`next`节点，新的`VirtualSpaceNode`变成`_current_virtual_space`，然后从新节点中分配`Metachunk`。
+
+创建`Klass`等需要从`Metaspace`中分配内存场景都是从`Metachunk`中分配，如果当前`Metachunk`内存空间不够了会申请一个新的`MetaChunk`，从新的`MetaChunk`中分配。当需要释放`Klass`等元数据占用的内存时，这些元数据对应的内存块会作为`MetaBlock`放到`SpaceManager`中的`_block_freelists`链表中被重复利用。
+
+![avatar](img/metaspace/metaspace类数据结构.png)
+
+`Metaspace`根据`MetadataType`分别建立了对应的静态的`VirtualSpaceList`和`ChunkManager`，这两个是全局的负责管理所有`Metaspace`实例的`VirtualSpaceNode`分配和空闲的`Metachunk`。每个`Metaspace`实例根据`MetadataType`分别有一个对应的`SpaceManager`，`SpaceManager`是内存分配和释放的总的入口，分配内存时首先从`_block_freelists`中分配，如果内存不足会尝试从`_current_chunk`中分配，如果分配失败会从尝试从对应类型的全局`ChunkManager`获取一个新的满足大小的`Chunk`，如果获取失败再从对应类型的全局`VirtualSpaceList`中获取一个新的`Metachunk`。获取新的`Metachunk`后，将其加入到合适的`_chunks_in_use`列表中，然后从新的`Metachunk`中分配内存。
+
+释放内存时则是将对应的内存块作为`MetaBlock`归还到`_block_freelists`中从而被重复利用。
+
 ### 参考网址
 
 [OpenJDK8的源代码介绍](https://www.likecs.com/show-110881.html)

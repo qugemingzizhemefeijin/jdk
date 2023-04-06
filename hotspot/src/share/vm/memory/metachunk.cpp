@@ -35,15 +35,19 @@ const size_t metadata_chunk_initialize = 0xf7f7f7f7;
 size_t Metachunk::object_alignment() {
   // Must align pointers and sizes to 8,
   // so that 64 bit types get correctly aligned.
+  // 对象分配的粒度是8字节
   const size_t alignment = 8;
 
   // Make sure that the Klass alignment also agree.
+  // 确保alignment和KlassAlignmentInBytes一致，KlassAlignmentInBytes表示分配Klass占用内存的粒度
   STATIC_ASSERT(alignment == (size_t)KlassAlignmentInBytes);
 
   return alignment;
 }
 
+// 返回存储Metachunk本身相关属性需要占用的字宽数
 size_t Metachunk::overhead() {
+  // 将Metachunk本身的内存大小向上按照内存粒度取整，再除以一个字宽的字节数
   return align_size_up(sizeof(Metachunk), object_alignment()) / BytesPerWord;
 }
 
@@ -72,6 +76,7 @@ MetaWord* Metachunk::allocate(size_t word_size) {
   // 指针碰撞算法分配内存，不需要使用额外的手段保证线程安全。（外层加了锁了）
   MetaWord* result = NULL;
   // If available, bump the pointer to allocate.
+  // 如果剩余可用空间充足则增加_top，将原来的_top返回，否则返回NULL
   if (free_word_size() >= word_size) {
     result = _top;
     _top = _top + word_size;

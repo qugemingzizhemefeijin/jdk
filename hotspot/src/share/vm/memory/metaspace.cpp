@@ -210,11 +210,15 @@ class ChunkManager : public CHeapObj<mtInternal> {
 
 // Used to manage the free list of Metablocks (a block corresponds
 // to the allocation of a quantum of metadata).
+// 用来管理空闲的Metablock，所有空闲的Metablock都被添加到支持按照空闲空间大小排序和查找的二叉树BlockTreeDictionary中。
 class BlockFreelist VALUE_OBJ_CLASS_SPEC {
+
+  // 属性会在第一次调用return_block函数时归还空闲Metablock时初始化
   BlockTreeDictionary* _dictionary;
 
   // Only allocate and split from freelist if the size of the allocation
   // is at least 1/4th the size of the available block.
+  // 调用get_block()获取满足指定大小的空闲Metablock时使用，要求查找到的空闲Metablock的大小不能超过目标大小的WasteMultiplier倍
   const static int WasteMultiplier = 4;
 
   // Accessors
@@ -225,7 +229,9 @@ class BlockFreelist VALUE_OBJ_CLASS_SPEC {
   ~BlockFreelist();
 
   // Get and return a block to the free list
+  // 获取一个空闲的Block
   MetaWord* get_block(size_t word_size);
+  // 将空闲的内存空间存放到 BlockFreelist 中，在此方法内会构造一个 Metablock 实例
   void return_block(MetaWord* p, size_t word_size);
 
   size_t total_size() {
@@ -315,6 +321,7 @@ class VirtualSpaceNode : public CHeapObj<mtClass> {
   Metachunk* take_from_committed(size_t chunk_word_size);
 
   // Allocate a chunk from the virtual space and return it.
+  // 从virtual_space中分配一段指定大小的内存空间
   Metachunk* get_chunk_vs(size_t chunk_word_size);
 
   // Expands/shrinks the committed space in a virtual space.  Delegates
@@ -352,10 +359,12 @@ class VirtualSpaceNode : public CHeapObj<mtClass> {
 
 
 // Decide if large pages should be committed when the memory is reserved.
+// 确定在保留内存时是否应提交大页
 static bool should_commit_large_pages_when_reserving(size_t bytes) {
   if (UseLargePages && UseLargePagesInMetaspace && !os::can_commit_large_page_memory()) {
     size_t words = bytes / BytesPerWord;
     bool is_class = false; // We never reserve large pages for the class space.
+    // 如果当前Metaspace的剩余容量允许扩展指定大小
     if (MetaspaceGC::can_expand(words, is_class) &&
         MetaspaceGC::allowed_expansion() >= words) {
       return true;
@@ -372,15 +381,20 @@ VirtualSpaceNode::VirtualSpaceNode(size_t bytes) : _top(NULL), _next(NULL), _rs(
   // This allocates memory with mmap.  For DumpSharedspaces, try to reserve
   // configurable address, generally at the top of the Java heap so other
   // memory addresses don't conflict.
+  // DumpSharedSpaces表示将加载的类Dump到一个文件中给其他的JVM使用，默认为false，如果为true则申请一段连续的内存时需要
+  // 从Java堆空间的顶部申请，避免地址冲突
   if (DumpSharedSpaces) {
     bool large_pages = false; // No large pages when dumping the CDS archive.
+    // SharedBaseAddress表示共享内存区域的基地址，64位下是32G，即从32G往后尝试申请一段连续的内存空间
     char* shared_base = (char*)align_ptr_up((char*)SharedBaseAddress, Metaspace::reserve_alignment());
 
     _rs = ReservedSpace(bytes, Metaspace::reserve_alignment(), large_pages, shared_base, 0);
     if (_rs.is_reserved()) {
+      // 分配成功
       assert(shared_base == 0 || _rs.base() == shared_base, "should match");
     } else {
       // Get a mmap region anywhere if the SharedBaseAddress fails.
+      // 在SharedBaseAddress上分配失败，则重试，不指定起始分配地址
       _rs = ReservedSpace(bytes, Metaspace::reserve_alignment(), large_pages);
     }
     MetaspaceShared::set_shared_rs(&_rs);
@@ -390,23 +404,29 @@ VirtualSpaceNode::VirtualSpaceNode(size_t bytes) : _top(NULL), _next(NULL), _rs(
     _rs = ReservedSpace(bytes, Metaspace::reserve_alignment(), large_pages);
   }
 
+  // 如果申请成功
   if (_rs.is_reserved()) {
+    // 校验分配的地址空间是否符合要求
     assert(_rs.base() != NULL, "Catch if we get a NULL address");
     assert(_rs.size() != 0, "Catch if we get a 0 size");
     assert_is_ptr_aligned(_rs.base(), Metaspace::reserve_alignment());
     assert_is_size_aligned(_rs.size(), Metaspace::reserve_alignment());
-
+    // 记录日志
     MemTracker::record_virtual_memory_type((address)_rs.base(), mtClass);
   }
 }
 
+// 用于将此VirtualSpaceNode保存的所有的Metachunk从ChunkManager管理的Metachunk freeList中移除，删除此VirtualSpaceNode时调用
 void VirtualSpaceNode::purge(ChunkManager* chunk_manager) {
   Metachunk* chunk = first_chunk();
   Metachunk* invalid_chunk = (Metachunk*) top();
+  // 按照起始内存地址遍历所有的Chunk，因为他们是地址连续的
   while (chunk < invalid_chunk ) {
     assert(chunk->is_tagged_free(), "Should be tagged free");
     MetaWord* next = ((MetaWord*)chunk) + chunk->word_size();
+    // 移除目标Metachunk
     chunk_manager->remove_chunk(chunk);
+    // 校验移除是否正常完成
     assert(chunk->next() == NULL &&
            chunk->prev() == NULL,
            "Was not removed from its list");
@@ -419,6 +439,7 @@ uint VirtualSpaceNode::container_count_slow() {
   uint count = 0;
   Metachunk* chunk = first_chunk();
   Metachunk* invalid_chunk = (Metachunk*) top();
+  // 根据内存地址遍历所有的Metachunk，统计Metachunk的个数
   while (chunk < invalid_chunk ) {
     MetaWord* next = ((MetaWord*)chunk) + chunk->word_size();
     // Don't count the chunks on the free lists.  Those are
@@ -800,24 +821,32 @@ BlockFreelist::~BlockFreelist() {
   }
 }
 
+// 将空闲内存维护到 BlockFreelist 中
 void BlockFreelist::return_block(MetaWord* p, size_t word_size) {
+  // 根据内存块的起始地址和大小构造一个新的Metablock
   Metablock* free_chunk = ::new (p) Metablock(word_size);
   if (dictionary() == NULL) {
+   // 初始化_dictionary
    _dictionary = new BlockTreeDictionary();
   }
+  // 添加到二叉树中保存
   dictionary()->return_chunk(free_chunk);
 }
 
+// 从空闲列表中查找一个空闲内存块
 MetaWord* BlockFreelist::get_block(size_t word_size) {
+  // _dictionary未初始化，肯定没有空闲的
   if (dictionary() == NULL) {
     return NULL;
   }
 
+  // TreeChunk是一个模板类，BlockTreeDictionary的实现会用到，如果word_size太小则返回NULL
   if (word_size < TreeChunk<Metablock, FreeList>::min_size()) {
     // Dark matter.  Too small for dictionary.
     return NULL;
   }
 
+  // 查找大于等于目标大小的空闲Metablock
   Metablock* free_block =
     dictionary()->get_chunk(word_size, FreeBlockDictionary<Metablock>::atLeast);
   if (free_block == NULL) {
@@ -825,15 +854,19 @@ MetaWord* BlockFreelist::get_block(size_t word_size) {
   }
 
   const size_t block_size = free_block->size();
+  // 如果找到的空闲Metablock的大小大于目标大小的4倍，则将其归还，返回NULL，避免浪费
   if (block_size > WasteMultiplier * word_size) {
     return_block((MetaWord*)free_block, block_size);
     return NULL;
   }
 
+  // 如果小于目标大小的4倍
   MetaWord* new_block = (MetaWord*)free_block;
   assert(block_size >= word_size, "Incorrect size of block from freelist");
+  // 计算多余的空间
   const size_t unused = block_size - word_size;
   if (unused >= TreeChunk<Metablock, FreeList>::min_size()) {
+    // 将多余的空间归还
     return_block(new_block + word_size, unused);
   }
 
@@ -875,15 +908,17 @@ size_t VirtualSpaceNode::free_words_in_vs() const {
 // chunks removed here are necessarily used for allocation.
 Metachunk* VirtualSpaceNode::take_from_committed(size_t chunk_word_size) {
   // Bottom of the new chunk
+  // 获取未分配内存的起始地址
   MetaWord* chunk_limit = top();
   assert(chunk_limit != NULL, "Not safe to call this method");
 
   // The virtual spaces are always expanded by the
   // commit granularity to enforce the following condition.
   // Without this the is_available check will not work correctly.
+  // 校验_virtual_space是否按照期望的方式expand，如果为false，则下面的is_available可能返回错误的结果
   assert(_virtual_space.committed_size() == _virtual_space.actual_committed_size(),
       "The committed memory doesn't match the expanded memory.");
-
+  // 如果剩余空间不足，返回NULL
   if (!is_available(chunk_word_size)) {
     if (TraceMetadataChunkAllocation) {
       gclog_or_tty->print("VirtualSpaceNode::take_from_committed() not available %d words ", chunk_word_size);
@@ -894,9 +929,11 @@ Metachunk* VirtualSpaceNode::take_from_committed(size_t chunk_word_size) {
   }
 
   // Take the space  (bump top on the current virtual space).
+  // 将top指针往高地址移动
   inc_top(chunk_word_size);
 
   // Initialize the chunk
+  // 初始化Metachunk
   Metachunk* result = ::new (chunk_limit) Metachunk(chunk_word_size, this);
   return result;
 }
@@ -922,16 +959,19 @@ bool VirtualSpaceNode::expand_by(size_t min_words, size_t preferred_words) {
 }
 
 Metachunk* VirtualSpaceNode::get_chunk_vs(size_t chunk_word_size) {
+  // 校验已获取锁
   assert_lock_strong(SpaceManager::expand_lock());
+  // 从commited区域的内存分配一个Metachunk
   Metachunk* result = take_from_committed(chunk_word_size);
   if (result != NULL) {
+    // 分配成功，增加计数器
     inc_container_count();
   }
   return result;
 }
 
 bool VirtualSpaceNode::initialize() {
-
+  // _rs申请内存地址空间失败，返回false
   if (!_rs.is_reserved()) {
     return false;
   }
@@ -939,20 +979,23 @@ bool VirtualSpaceNode::initialize() {
   // These are necessary restriction to make sure that the virtual space always
   // grows in steps of Metaspace::commit_alignment(). If both base and size are
   // aligned only the middle alignment of the VirtualSpace is used.
+  // 校验申请的地址空间是否合法
   assert_is_ptr_aligned(_rs.base(), Metaspace::commit_alignment());
   assert_is_size_aligned(_rs.size(), Metaspace::commit_alignment());
 
   // ReservedSpaces marked as special will have the entire memory
   // pre-committed. Setting a committed size will make sure that
   // committed_size and actual_committed_size agrees.
+  // 如果rs支持pre-committed，则设置pre_committed_size为rs的大小
   size_t pre_committed_size = _rs.special() ? _rs.size() : 0;
-
+  // 初始化virtual_space
   bool result = virtual_space()->initialize_with_granularity(_rs, pre_committed_size,
                                             Metaspace::commit_alignment());
+  // 申请内存成功
   if (result) {
     assert(virtual_space()->committed_size() == virtual_space()->actual_committed_size(),
         "Checking that the pre-committed memory was registered by the VirtualSpace");
-
+    // 设置其他属性
     set_top((MetaWord*)virtual_space()->low());
     set_reserved(MemRegion((HeapWord*)_rs.base(),
                  (HeapWord*)(_rs.base() + _rs.size())));
@@ -1115,16 +1158,20 @@ void VirtualSpaceList::retire_current_virtual_space() {
   vsn->retire(cm);
 }
 
+// 当前VirtualSpaceNode的剩余空间不足需要申请一个新的VirtualSpaceNode时调用的。
+// 此方法会在当前VirtualSpaceNode的剩余空间内申请新的Metachunk，并将其添加到ChunkManager中，避免空间浪费。
 void VirtualSpaceNode::retire(ChunkManager* chunk_manager) {
   for (int i = (int)MediumIndex; i >= (int)ZeroIndex; --i) {
     ChunkIndex index = (ChunkIndex)i;
+    // 获取不同规格的Metachunk的大小
     size_t chunk_size = chunk_manager->free_chunks(index)->size();
-
+    // 如果剩余空间充足
     while (free_words_in_vs() >= chunk_size) {
       DEBUG_ONLY(verify_container_count();)
+      // 申请一个新的Metachunk
       Metachunk* chunk = get_chunk_vs(chunk_size);
       assert(chunk != NULL, "allocation should have been successful");
-
+      // 申请成功将其交给ChunkManager
       chunk_manager->return_chunks(index, chunk);
       chunk_manager->inc_free_chunks_total(chunk_size);
       DEBUG_ONLY(verify_container_count();)
@@ -1470,24 +1517,33 @@ size_t MetaspaceGC::allowed_expansion() {
   return left_to_commit / BytesPerWord;
 }
 
+// GC之后用于计算一个新的 _capacity_until_GC 属性值
 void MetaspaceGC::compute_new_size() {
   assert(_shrink_factor <= 100, "invalid shrink factor");
+  // 此值用于控制因为 System.gc() 的前几次做到缓慢的缩容
   uint current_shrink_factor = _shrink_factor;
   _shrink_factor = 0;
 
+  // 当前已使用的内存大小
   const size_t used_after_gc = MetaspaceAux::allocated_capacity_bytes();
+  // 当前已分配的内存大小
   const size_t capacity_until_GC = MetaspaceGC::capacity_until_GC();
 
+  // MinMetaspaceFreeRatio是GC完成后需要保证的Metaspace最低的空闲空间比例，默认是40，为了避免Metaspace因为内存不足再次触发GC
   const double minimum_free_percentage = MinMetaspaceFreeRatio / 100.0;
   const double maximum_used_percentage = 1.0 - minimum_free_percentage;
 
+  // 计算按照MinMetaspaceFreeRatio计算后需要的最低内存值(让其已使用空间保持在60%以上)
   const double min_tmp = used_after_gc / maximum_used_percentage;
+  // 如果min_tmp大于MaxMetaspaceSize则取MaxMetaspaceSize，保证扩容后不超过最大值
   size_t minimum_desired_capacity =
     (size_t)MIN2(min_tmp, double(max_uintx));
   // Don't shrink less than the initial generation size
+  // 如果MetaspaceSize大于minimum_desired_capacity则取MetaspaceSize，保证缩容后不低于初始值
   minimum_desired_capacity = MAX2(minimum_desired_capacity,
                                   MetaspaceSize);
 
+  // 打印GC日志
   if (PrintGCDetails && Verbose) {
     gclog_or_tty->print_cr("\nMetaspaceGC::compute_new_size: ");
     gclog_or_tty->print_cr("  "
@@ -1502,13 +1558,18 @@ void MetaspaceGC::compute_new_size() {
 
 
   size_t shrink_bytes = 0;
+  // 如果当前的capacity_until_GC小于期望值，则扩容，增加capacity_until_GC
   if (capacity_until_GC < minimum_desired_capacity) {
     // If we have less capacity below the metaspace HWM, then
     // increment the HWM.
+    // 计算需要增加的值
     size_t expand_bytes = minimum_desired_capacity - capacity_until_GC;
+    // 取整
     expand_bytes = align_size_up(expand_bytes, Metaspace::commit_alignment());
     // Don't expand unless it's significant
+    // MinMetaspaceExpansion表示扩容时最低的扩展值，默认是332k，低于此值不扩容
     if (expand_bytes >= MinMetaspaceExpansion) {
+      // 增加capacity_until_GC
       MetaspaceGC::inc_capacity_until_GC(expand_bytes);
     }
     if (PrintGCDetails && Verbose) {
@@ -1528,14 +1589,18 @@ void MetaspaceGC::compute_new_size() {
 
   // No expansion, now see if we want to shrink
   // We would never want to shrink more than this
+  // 如果当前的capacity_until_GC大于最低期望值，需要判断capacity_until_GC是否大于最高期望值，如果是则缩容，减少capacity_until_GC计算需要缩容的空间
   size_t max_shrink_bytes = capacity_until_GC - minimum_desired_capacity;
   assert(max_shrink_bytes >= 0, err_msg("max_shrink_bytes " SIZE_FORMAT,
     max_shrink_bytes));
 
   // Should shrinking be considered?
+  // MaxMetaspaceFreeRatio表示GC结束后Metaspace的最大空闲比例，默认是70
   if (MaxMetaspaceFreeRatio < 100) {
+    // 根据MaxMetaspaceFreeRatio计算允许的最大的空间值，不能低于MetaspaceSize初始值，不能大于最大值MaxMetaspaceSize
     const double maximum_free_percentage = MaxMetaspaceFreeRatio / 100.0;
     const double minimum_used_percentage = 1.0 - maximum_free_percentage;
+    // 计算按照MaxMetaspaceFreeRatio计算后需要的最高内存值(让其已使用空间保持在30%以下)
     const double max_tmp = used_after_gc / minimum_used_percentage;
     size_t maximum_desired_capacity = (size_t)MIN2(max_tmp, double(max_uintx));
     maximum_desired_capacity = MAX2(maximum_desired_capacity,
@@ -1553,11 +1618,14 @@ void MetaspaceGC::compute_new_size() {
                              maximum_desired_capacity / (double) K);
     }
 
+    // /合理校验，要求的最小内存值必须小于或者等于最大内存值
     assert(minimum_desired_capacity <= maximum_desired_capacity,
            "sanity check");
 
+    // 如果capacity_until_GC大于根据最大空闲比例计算出的允许的最大内存值，即当前的空间比例大于设置的最大比例，需要缩容
     if (capacity_until_GC > maximum_desired_capacity) {
       // Capacity too large, compute shrinking size
+      // 计算需要缩容的大小
       shrink_bytes = capacity_until_GC - maximum_desired_capacity;
       // We don't want shrink all the way back to initSize if people call
       // System.gc(), because some programs do that between "phases" and then
@@ -1565,13 +1633,16 @@ void MetaspaceGC::compute_new_size() {
       // damp the shrinking: 0% on the first call, 10% on the second call, 40%
       // on the third call, and 100% by the fourth call.  But if we recompute
       // size without shrinking, it goes back to 0%.
+      // 为了避免程序调用System.gc()触发的GC导致堆空间的再次分配，增加参数_shrink_factor，第一次GC时是0，即第一次GC时不会触发缩容
+      // 第二次是10，即最多只缩容10%,第三次是40%,第四次是100%
       shrink_bytes = shrink_bytes / 100 * current_shrink_factor;
-
+      // 内存取整
       shrink_bytes = align_size_down(shrink_bytes, Metaspace::commit_alignment());
 
       assert(shrink_bytes <= max_shrink_bytes,
         err_msg("invalid shrink size " SIZE_FORMAT " not <= " SIZE_FORMAT,
           shrink_bytes, max_shrink_bytes));
+      // 更新 _shrink_factor
       if (current_shrink_factor == 0) {
         _shrink_factor = 10;
       } else {
@@ -1598,6 +1669,7 @@ void MetaspaceGC::compute_new_size() {
   }
 
   // Don't shrink unless it's significant
+  // 如果大于最低扩容空间，且缩容后大于初始值MetaspaceSize，则缩容
   if (shrink_bytes >= MinMetaspaceExpansion &&
       ((capacity_until_GC - shrink_bytes) >= MetaspaceSize)) {
     MetaspaceGC::dec_capacity_until_GC(shrink_bytes);
@@ -2684,7 +2756,9 @@ void MetaspaceAux::inc_used(Metaspace::MetadataType mdtype, size_t words) {
 
 size_t MetaspaceAux::used_bytes_slow(Metaspace::MetadataType mdtype) {
   size_t used = 0;
+  // ClassLoaderDataGraphMetaspaceIterator的构造方法会获取ClassLoaderData链表的头元素，从头元素开始依次遍历
   ClassLoaderDataGraphMetaspaceIterator iter;
+  // 遍历所有的ClassLoader
   while (iter.repeat()) {
     Metaspace* msp = iter.get_next();
     // Sum allocated_blocks_words for each metaspace
@@ -2979,6 +3053,7 @@ Metaspace::Metaspace(Mutex* lock, MetaspaceType type) {
 }
 
 Metaspace::~Metaspace() {
+  // 释放SpaceManager
   delete _vsm;
   if (using_class_space()) {
     delete _class_vsm;
@@ -3008,6 +3083,7 @@ void Metaspace::set_narrow_klass_base_and_shift(address metaspace_base, address 
                           (address)(metaspace_base + compressed_class_space_size()));
     lower_base = MIN2(metaspace_base, cds_base);
   } else {
+    // lower_base是起始地址，higher_address是终止地址
     higher_address = metaspace_base + compressed_class_space_size();
     lower_base = metaspace_base;
 
@@ -3041,6 +3117,7 @@ bool Metaspace::can_use_cds_with_metaspace_addr(char* metaspace_base, address cd
 
 // Try to allocate the metaspace at the requested addr.
 void Metaspace::allocate_metaspace_compressed_klass_ptrs(char* requested_addr, address cds_base) {
+  // 校验参数
   assert(using_class_space(), "called improperly");
   assert(UseCompressedClassPointers, "Only use with CompressedKlassPtrs");
   assert(compressed_class_space_size() < KlassEncodingMetaspaceMax,
@@ -3050,6 +3127,7 @@ void Metaspace::allocate_metaspace_compressed_klass_ptrs(char* requested_addr, a
   assert_is_size_aligned(compressed_class_space_size(), _reserve_alignment);
 
   // Don't use large pages for the class space.
+  // 尝试在指定起始地址处申请一段连续的内存空间
   bool large_pages = false;
 
   ReservedSpace metaspace_rs = ReservedSpace(compressed_class_space_size(),
@@ -3077,6 +3155,7 @@ void Metaspace::allocate_metaspace_compressed_klass_ptrs(char* requested_addr, a
     // metaspace as if UseCompressedClassPointers is off because too much
     // initialization has happened that depends on UseCompressedClassPointers.
     // So, UseCompressedClassPointers cannot be turned off at this point.
+    // 忽略起始地址，尝试重新申请，分配失败抛出异常
     if (!metaspace_rs.is_reserved()) {
       metaspace_rs = ReservedSpace(compressed_class_space_size(),
                                    _reserve_alignment, large_pages);
@@ -3096,11 +3175,13 @@ void Metaspace::allocate_metaspace_compressed_klass_ptrs(char* requested_addr, a
         "Could not allocate metaspace at a compatible address");
   }
 
+  // 重置narrow_klass_base和narrow_klass_shift
   set_narrow_klass_base_and_shift((address)metaspace_rs.base(),
                                   UseSharedSpaces ? (address)cds_base : 0);
 
   initialize_class_space(metaspace_rs);
 
+  // 打印日志
   if (PrintCompressedOopsMode || (PrintMiscellaneous && Verbose)) {
     gclog_or_tty->print_cr("Narrow klass base: " PTR_FORMAT ", Narrow klass shift: " SIZE_FORMAT,
                             Universe::narrow_klass_base(), Universe::narrow_klass_shift());
@@ -3112,6 +3193,7 @@ void Metaspace::allocate_metaspace_compressed_klass_ptrs(char* requested_addr, a
 // For UseCompressedClassPointers the class space is reserved above the top of
 // the Java heap.  The argument passed in is at the base of the compressed space.
 void Metaspace::initialize_class_space(ReservedSpace rs) {
+  // 初始化_class_space_list和_chunk_manager_class
   // The reserved space size may be bigger because of alignment, esp with UseLargePages
   assert(rs.size() >= CompressedClassSpaceSize,
          err_msg(SIZE_FORMAT " != " UINTX_FORMAT, rs.size(), CompressedClassSpaceSize));
@@ -3127,6 +3209,7 @@ void Metaspace::initialize_class_space(ReservedSpace rs) {
 #endif
 
 void Metaspace::ergo_initialize() {
+  // DumpSharedSpaces表示将共享的Metaspace空间dump到一个文件中，给其他JVM使用，默认为false
   if (DumpSharedSpaces) {
     // Using large pages when dumping the shared archive is currently not implemented.
     FLAG_SET_ERGO(bool, UseLargePagesInMetaspace, false);
@@ -3137,6 +3220,7 @@ void Metaspace::ergo_initialize() {
     page_size = os::large_page_size();
   }
 
+  // 初始化参数
   _commit_alignment  = page_size;
   _reserve_alignment = MAX2(page_size, (size_t)os::vm_allocation_granularity());
 
@@ -3176,6 +3260,7 @@ void Metaspace::global_initialize() {
 
   MetaspaceShared::set_max_alignment(max_alignment);
 
+  // DumpSharedSpaces默认为false
   if (DumpSharedSpaces) {
     SharedReadOnlySize  = align_size_up(SharedReadOnlySize,  max_alignment);
     SharedReadWriteSize = align_size_up(SharedReadWriteSize, max_alignment);
@@ -3221,6 +3306,7 @@ void Metaspace::global_initialize() {
     // and map in the memory before initializing the rest of metaspace (so
     // the addresses don't conflict)
     address cds_address = NULL;
+    // UseSharedSpaces默认是false
     if (UseSharedSpaces) {
       FileMapInfo* mapinfo = new FileMapInfo();
       memset(mapinfo, 0, sizeof(FileMapInfo));
@@ -3242,12 +3328,14 @@ void Metaspace::global_initialize() {
 #ifdef _LP64
     // If UseCompressedClassPointers is set then allocate the metaspace area
     // above the heap and above the CDS area (if it exists).
+    // UseCompressedClassPointers为false，DumpSharedSpaces为true时，返回true，64位下默认返回true
     if (using_class_space()) {
       if (UseSharedSpaces) {
         char* cds_end = (char*)(cds_address + cds_total);
         cds_end = (char *)align_ptr_up(cds_end, _reserve_alignment);
         allocate_metaspace_compressed_klass_ptrs(cds_end, cds_address);
       } else {
+        // 以堆内存的终止地址作为起始地址申请内存，避免堆内存与Metaspace的内存地址冲突
         char* base = (char*)align_ptr_up(Universe::heap()->reserved_region().end(), _reserve_alignment);
         allocate_metaspace_compressed_klass_ptrs(base, 0);
       }
@@ -3265,6 +3353,7 @@ void Metaspace::global_initialize() {
     _first_class_chunk_word_size = align_word_size_up(_first_class_chunk_word_size);
     // Arbitrarily set the initial virtual space to a multiple
     // of the boot class loader size.
+    // VIRTUALSPACEMULTIPLIER的取值是2，初始化_space_list和_chunk_manager_metadata
     size_t word_size = VIRTUALSPACEMULTIPLIER * _first_chunk_word_size;
     word_size = align_size_up(word_size, Metaspace::reserve_alignment_words());
 
@@ -3272,6 +3361,7 @@ void Metaspace::global_initialize() {
     _space_list = new VirtualSpaceList(word_size);
     _chunk_manager_metadata = new ChunkManager(SpecializedChunk, SmallChunk, MediumChunk);
 
+    // _space_list初始化失败
     if (!_space_list->initialization_succeeded()) {
       vm_exit_during_initialization("Unable to setup metadata virtual space list.", NULL);
     }
@@ -3284,11 +3374,13 @@ Metachunk* Metaspace::get_initialization_chunk(MetadataType mdtype,
                                                size_t chunk_word_size,
                                                size_t chunk_bunch) {
   // Get a chunk from the chunk freelist
+  // 从ChunkManager管理的空闲Chunk中分配一个满足大小的chunk
   Metachunk* chunk = get_chunk_manager(mdtype)->chunk_freelist_allocate(chunk_word_size);
   if (chunk != NULL) {
     return chunk;
   }
 
+  // 查找失败从VirtualSpaceList中分配一个新的Chunk
   return get_space_list(mdtype)->get_new_chunk(chunk_word_size, chunk_word_size, chunk_bunch);
 }
 
@@ -3299,6 +3391,7 @@ void Metaspace::initialize(Mutex* lock, MetaspaceType type) {
   assert(chunk_manager_metadata() != NULL,
     "Metadata ChunkManager has not been initialized");
 
+  // 初始化_vsm和_class_vsm
   _vsm = new SpaceManager(NonClassType, lock);
   if (_vsm == NULL) {
     return;
@@ -3320,6 +3413,7 @@ void Metaspace::initialize(Mutex* lock, MetaspaceType type) {
     }
   }
 
+  // 获取锁
   MutexLockerEx cl(SpaceManager::expand_lock(), Mutex::_no_safepoint_check_flag);
 
   // Allocate chunk for metadata objects
@@ -3329,6 +3423,7 @@ void Metaspace::initialize(Mutex* lock, MetaspaceType type) {
   assert(!DumpSharedSpaces || new_chunk != NULL, "should have enough space for both chunks");
   if (new_chunk != NULL) {
     // Add to this manager's list of chunks in use and current_chunk().
+    // chunk分配成功，将其添加到SpaceManager中，将其作为当前使用的Chunk
     vsm()->add_chunk(new_chunk, true);
   }
 
@@ -3363,6 +3458,7 @@ MetaWord* Metaspace::allocate(size_t word_size, MetadataType mdtype) {
 }
 
 MetaWord* Metaspace::expand_and_allocate(size_t word_size, MetadataType mdtype) {
+  // 计算允许扩展的空间
   size_t delta_bytes = MetaspaceGC::delta_capacity_until_GC(word_size * BytesPerWord);
   assert(delta_bytes > 0, "Must be");
 
@@ -3422,10 +3518,14 @@ size_t Metaspace::capacity_bytes_slow(MetadataType mdtype) const {
 }
 
 void Metaspace::deallocate(MetaWord* ptr, size_t word_size, bool is_class) {
+  // 如果在安全点
   if (SafepointSynchronize::is_at_safepoint()) {
+    // 校验必须是VM Thread
     assert(Thread::current()->is_VM_thread(), "should be the VM thread");
     // Don't take Heap_lock
+    // 获取锁
     MutexLockerEx ml(vsm()->lock(), Mutex::_no_safepoint_check_flag);
+    // 如果word_size过小则不处理
     if (word_size < TreeChunk<Metablock, FreeList>::min_size()) {
       // Dark matter.  Too small for dictionary.
 #ifdef ASSERT
@@ -3433,6 +3533,7 @@ void Metaspace::deallocate(MetaWord* ptr, size_t word_size, bool is_class) {
 #endif
       return;
     }
+    // 通过不同的SpaceManager释放，变成MetaBlock放到block_freelists中重复利用
     if (is_class && using_class_space()) {
       class_vsm()->deallocate(ptr, word_size);
     } else {
@@ -3460,6 +3561,7 @@ void Metaspace::deallocate(MetaWord* ptr, size_t word_size, bool is_class) {
 MetaWord* Metaspace::allocate(ClassLoaderData* loader_data, size_t word_size,
                               bool read_only, MetaspaceObj::Type type, TRAPS) {
   if (HAS_PENDING_EXCEPTION) {
+    // 不能有未处理异常
     assert(false, "Should not allocate with exception pending");
     return NULL;  // caller does a CHECK_NULL too
   }
@@ -3470,6 +3572,7 @@ MetaWord* Metaspace::allocate(ClassLoaderData* loader_data, size_t word_size,
   // Allocate in metaspaces without taking out a lock, because it deadlocks
   // with the SymbolTable_lock.  Dumping is single threaded for now.  We'll have
   // to revisit this for application class data sharing.
+  // DumpSharedSpaces默认为false
   if (DumpSharedSpaces) {
     assert(type > MetaspaceObj::UnknownType && type < MetaspaceObj::_number_of_types, "sanity");
     Metaspace* space = read_only ? loader_data->ro_metaspace() : loader_data->rw_metaspace();

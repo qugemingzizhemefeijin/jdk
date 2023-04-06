@@ -111,8 +111,10 @@ class Metabase VALUE_OBJ_CLASS_SPEC {
 // 因为要从全局的VirtualSpaceList链表的Node中分配内存是“昂贵”的操作，需要加锁。我们不希望这个操作太频繁，因此一次性给一个大的MetaChunk块，
 // 以便于这个类加载器之后加载其他的类，这样就可以做到多个类加载器并发分配了。只有当这个chunk块用完了，类加载器才需要VirtualSpaceList去申请新的chunk。
 
-// Metachunk块通过SpaceManager和ChunkManager管理，SpaceManager用来管理每个类加载器正在使用的Metachunk块，
-// 而ChunkManager用来管理所有空闲的Metachunk块。
+// Metachunk表示从一段连续的内存空间Virtualspace中分配的一小块内存，当Metachunk不再使用时会被添加到空闲链表中，从而被重新使用而不是释放其占用的内存。
+// Metachunk和SpaceManager的关联关系不是固定的，即当Metachunk被重新使用时可能分配给一个新的SpaceManager。
+
+// Metachunk块通过SpaceManager和ChunkManager管理，SpaceManager用来管理每个类加载器正在使用的Metachunk块，而ChunkManager用来管理所有空闲的Metachunk块。
 class Metachunk : public Metabase<Metachunk> {
   friend class TestMetachunk;
   // The VirtualSpaceNode containing this chunk.
@@ -125,6 +127,7 @@ class Metachunk : public Metabase<Metachunk> {
 
   DEBUG_ONLY(bool _is_tagged_free;)
 
+  // 返回除去保存Metachunk自身属性的那部分内存，可用于分配内存的起始地址
   MetaWord* initial_top() const { return (MetaWord*)this + overhead(); }
   MetaWord* top() const         { return _top; }
 
@@ -181,6 +184,8 @@ class Metachunk : public Metabase<Metachunk> {
 // the Metachunk it is a part of will be deallocated when it's
 // associated class loader is collected.
 
+// Metablock是从Metachunk中分配内存的单位，即从Metachunk中分配出去的内存块都是以Metablock的形式存在，Metablock可以被负责管理它的SpaceManager重复利用，
+// 并且与Metachunk不同的是，Metablock与SpaceManager的关联关系不会改变。
 class Metablock : public Metabase<Metablock> {
   friend class VMStructs;
  public:
