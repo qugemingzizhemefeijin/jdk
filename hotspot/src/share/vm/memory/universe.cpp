@@ -850,8 +850,11 @@ jint Universe::initialize_heap() {
     } else { // default old generation
       gc_policy = new MarkSweepPolicy();
     }
+    // 初始化MarkSweepPolicy::_generations属性
+    // 如0为Generation::DefNew， 1为Generation::MarkSweepCompact
     gc_policy->initialize_all();
 
+    // 堆使用GenCollectedHeap来管理
     Universe::_collectedHeap = new GenCollectedHeap(gc_policy);
   }
 
@@ -938,6 +941,7 @@ jint Universe::initialize_heap() {
 
 
 // Reserve the Java heap, which is now the same for all GCs.
+// 按年轻代和老年代要求的最大内存值分配虚拟空间
 ReservedSpace Universe::reserve_heap(size_t heap_size, size_t alignment) {
   // 校验参数
   assert(alignment <= Arguments::conservative_max_heap_alignment(),
@@ -956,6 +960,7 @@ ReservedSpace Universe::reserve_heap(size_t heap_size, size_t alignment) {
       || use_large_pages, "Wrong alignment to use large pages");
 
   // 计算Java堆的基地址
+  // 主要是处理压缩指针的地址，如果为虚拟机加了-XX:-UseCompressedOops选项，此函数最终会返回addr，表示对堆的基址没有任何要求。
   char* addr = Universe::preferred_heap_base(total_reserved, alignment, Universe::UnscaledNarrowOop);
   // 在执行构造方法的时候会向操作系统申请一段连续的内存空间
   ReservedHeapSpace total_rs(total_reserved, alignment, use_large_pages, addr);

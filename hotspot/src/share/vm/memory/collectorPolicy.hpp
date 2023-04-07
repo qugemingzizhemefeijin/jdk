@@ -291,6 +291,7 @@ class GenCollectorPolicy : public CollectorPolicy {
 
   virtual void initialize_generations() { };
 
+  // 初始化堆，内存等信息
   virtual void initialize_all() {
     // 初始化一些属性，尤其是与内存大小相关的一些属性
     CollectorPolicy::initialize_all();

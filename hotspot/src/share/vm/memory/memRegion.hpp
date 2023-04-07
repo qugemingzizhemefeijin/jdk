@@ -40,11 +40,12 @@
 
 class MetaWord;
 
+// MemRegion表示一段连续的内存地址空间
 class MemRegion VALUE_OBJ_CLASS_SPEC {
   friend class VMStructs;
 private:
-  HeapWord* _start;
-  size_t    _word_size;
+  HeapWord* _start;     // 用于保存基地址
+  size_t    _word_size; // 保存地址空间大小，这样堆GenCollectedHeap就可以根据_reserved属性获取对应的内存基地址及内存大小了。
 
 public:
   MemRegion() : _start(NULL), _word_size(0) {};

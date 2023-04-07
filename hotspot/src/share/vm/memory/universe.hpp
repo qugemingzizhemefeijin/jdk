@@ -231,6 +231,7 @@ class Universe: AllStatic {
   // 上一次GC时的堆内存的已使用的内存量
   static size_t _heap_used_at_last_gc;
 
+  // 初始化堆
   static jint initialize_heap();
   // 创建表示基本类型的java.lang.Class对象， 该对象用oop表示， 所以_bool_mirror的类型为oop
   static void initialize_basic_type_mirrors(TRAPS);

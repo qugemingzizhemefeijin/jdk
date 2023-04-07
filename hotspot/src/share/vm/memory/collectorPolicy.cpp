@@ -1111,6 +1111,7 @@ void MarkSweepPolicy::initialize_alignments() {
   _heap_alignment = compute_heap_alignment();
 }
 
+// 初始化内存代
 void MarkSweepPolicy::initialize_generations() {
   _generations = NEW_C_HEAP_ARRAY3(GenerationSpecPtr, number_of_generations(), mtGC, 0, AllocFailStrategy::RETURN_NULL);
   if (_generations == NULL) {

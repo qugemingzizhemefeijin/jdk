@@ -3116,6 +3116,9 @@ static address _highest_vm_reserved_address = NULL;
 // 'requested_addr' is only treated as a hint, the return value may or
 // may not start from the requested address. Unlike Linux mmap(), this
 // function returns NULL to indicate failure.
+
+// 如果参数fixed为true，则要求分配的内存基址从requested_addr开始，如果这个内存基址被占用，则会发生重写，我们对基址没有任何要求，
+// 因此fixed的值为false，requested_addr的值为NULL。如果有值的话，内存基址可能会从requested_addr开始，不过这不是必须要做的。
 static char* anon_mmap(char* requested_addr, size_t bytes, bool fixed) {
   char * addr;
   int flags;
