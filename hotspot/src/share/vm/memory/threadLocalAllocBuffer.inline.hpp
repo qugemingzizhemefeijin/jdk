@@ -31,6 +31,7 @@
 #include "runtime/thread.hpp"
 #include "utilities/copy.hpp"
 
+// 通过指针碰撞进行内存分配，由于TLAB是线程私有的，所以并不需要使用CAS等方式保证原子性，分配成功后返回内存块首地址，否则返回NULL。
 inline HeapWord* ThreadLocalAllocBuffer::allocate(size_t size) {
   // 首先检查当前TLAB的一些不变量，以确保当前TLAB处于正确的状态。
   invariants();
@@ -60,16 +61,21 @@ inline HeapWord* ThreadLocalAllocBuffer::allocate(size_t size) {
 }
 
 inline size_t ThreadLocalAllocBuffer::compute_size(size_t obj_size) {
+  // 对象要按MinObjAlignment（值为8）字节对齐
   const size_t aligned_obj_size = align_object_size(obj_size);
 
   // Compute the size for the new TLAB.
   // The "last" tlab may be smaller to reduce fragmentation.
   // unsafe_max_tlab_alloc is just a hint.
+  // 获取Eden空闲区的大小
   const size_t available_size = Universe::heap()->unsafe_max_tlab_alloc(myThread()) /
                                                   HeapWordSize;
+  // 要计算出新分配的TLAB的大小，这个值要大于等于需要为对象分配的内存空间，
+  // 同时要在Eden空闲区和ThreadLocalAllocBuffer::_desired_size加上为对象分配的内存之和中取最小值。
   size_t new_tlab_size = MIN2(available_size, desired_size() + aligned_obj_size);
 
   // Make sure there's enough room for object and filler int[].
+  // 确保新的TLAB的内存大小要大于为对象分配的内存空间
   const size_t obj_plus_filler_size = aligned_obj_size + alignment_reserve();
   if (new_tlab_size < obj_plus_filler_size) {
     // If there isn't enough room for the allocation, return failure.
@@ -93,6 +99,10 @@ void ThreadLocalAllocBuffer::record_slow_allocation(size_t obj_size) {
   // Raise size required to bypass TLAB next time. Why? Else there's
   // a risk that a thread that repeatedly allocates objects of one
   // size will get stuck on this slow path.
+
+  // 调用refill_waste_limit_increment()函数获取TLABWasteIncrement的值，默认值为4，表示动态增加浪费空间的字节数。
+  // 为了防止过多地调用GenCollectedHeap::mem_allocate()函数从堆中分配，HotSpot VM增加了TLABWasteIncrement选项，
+  // 如第一次从堆中分配的极限值是1%，那么下一次从堆中分配的极限值就是%1+4%=5%。
 
   set_refill_waste_limit(refill_waste_limit() + refill_waste_limit_increment());
 

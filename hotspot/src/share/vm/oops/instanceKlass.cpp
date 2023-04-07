@@ -1167,6 +1167,7 @@ instanceOop InstanceKlass::register_finalizer(instanceOop i, TRAPS) {
 
 // 创建instanceOop实例对象
 instanceOop InstanceKlass::allocate_instance(TRAPS) {
+  // 是否重写finalize()方法
   bool has_finalizer_flag = has_finalizer(); // Query before possible GC
   // 获取创建instanceOop实例所需要的内存空间
   int size = size_helper();  // Query before forming handle.

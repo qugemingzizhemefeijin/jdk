@@ -71,17 +71,18 @@
 
   // Helpers for runtime call arguments/results
   void get_method(Register reg) {
-    movptr(reg, Address(rbp, frame::interpreter_frame_method_offset * wordSize));
+                                                                                    // %rbp-0x18后指向Method*， 存储到%rsi中
+    movptr(reg, Address(rbp, frame::interpreter_frame_method_offset * wordSize));   // 0x00007fffe1022b1a: mov -0x18(%rbp),%rsi
   }
 
   void get_const(Register reg) {
-    get_method(reg);
-    movptr(reg, Address(reg, Method::const_offset()));
+    get_method(reg);                                                                // %rsi偏移0x10后就是ConstMethod*， 存储到%rsi中
+    movptr(reg, Address(reg, Method::const_offset()));                              // 0x00007fffe1022b1e: mov 0x10(%rsi),%rsi
   }
 
   void get_constant_pool(Register reg) {
-    get_const(reg);
-    movptr(reg, Address(reg, ConstMethod::constants_offset()));
+    get_const(reg);                                                                 // %rsi偏移0x8后就是ConstantPool*， 存储到%rsi中
+    movptr(reg, Address(reg, ConstMethod::constants_offset()));                     // 0x00007fffe1022b22: mov 0x8(%rsi),%rsi
   }
 
   void get_constant_pool_cache(Register reg) {
@@ -90,8 +91,8 @@
   }
 
   void get_cpool_and_tags(Register cpool, Register tags) {
-    get_constant_pool(cpool);
-    movptr(tags, Address(cpool, ConstantPool::tags_offset_in_bytes()));
+    get_constant_pool(cpool);                                                       // %rsi偏移0x10后就是tags属性的地址， 存储到%rax中
+    movptr(tags, Address(cpool, ConstantPool::tags_offset_in_bytes()));             // 0x00007fffe1022b26: mov 0x10(%rsi),%rax
   }
 
   void get_unsigned_2_byte_index_at_bcp(Register reg, int bcp_offset);

@@ -152,7 +152,7 @@ IRT_ENTRY(void, InterpreterRuntime::_new(JavaThread* thread, ConstantPool* pool,
   // Make sure we are not instantiating an abstract klass
   klass->check_valid_for_instantiation(true, CHECK);
 
-  // Make sure klass is initialized
+  // Make sure klass is initialized // 确保klass已经完成初始化
   klass->initialize(CHECK);
 
   // At this point the class may not be fully initialized
@@ -169,7 +169,7 @@ IRT_ENTRY(void, InterpreterRuntime::_new(JavaThread* thread, ConstantPool* pool,
   //       Java).
   //       If we have a breakpoint, then we don't rewrite
   //       because the _breakpoint bytecode would be lost.
-  oop obj = klass->allocate_instance(CHECK);
+  oop obj = klass->allocate_instance(CHECK);    // 为Java对象分配内存
   thread->set_vm_result(obj);
 IRT_END
 

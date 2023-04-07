@@ -40,7 +40,9 @@
 
 void CollectedHeap::post_allocation_setup_common(KlassHandle klass,
                                                  HeapWord* obj) {
+  // 初始化对象头markOop
   post_allocation_setup_no_klass_install(klass, obj);
+  // 初始化对象头中的_klass或_compressed_klass属性
   post_allocation_install_obj_klass(klass, oop(obj));
 }
 
@@ -66,6 +68,7 @@ void CollectedHeap::post_allocation_install_obj_klass(KlassHandle klass,
   assert(klass() != NULL || !Universe::is_fully_initialized(), "NULL klass");
   assert(klass() == NULL || klass()->is_klass(), "not a klass");
   assert(obj != NULL, "NULL object pointer");
+  // 初始化对象头中的_klass或_compressed_klass属性
   obj->set_klass(klass());
   assert(!Universe::is_fully_initialized() || obj->klass() != NULL,
          "missing klass");
@@ -125,6 +128,7 @@ HeapWord* CollectedHeap::common_mem_allocate_noinit(KlassHandle klass, size_t si
 
   HeapWord* result = NULL;
   if (UseTLAB) {
+    // 在TLAB中分配内存
     result = allocate_from_tlab(klass, THREAD, size);
     if (result != NULL) {
       assert(!HAS_PENDING_EXCEPTION,
@@ -132,6 +136,7 @@ HeapWord* CollectedHeap::common_mem_allocate_noinit(KlassHandle klass, size_t si
       return result;
     }
   }
+  // 在堆中分配内存
   bool gc_overhead_limit_was_exceeded = false;
   result = Universe::heap()->mem_allocate(size,
                                           &gc_overhead_limit_was_exceeded);
@@ -174,11 +179,14 @@ HeapWord* CollectedHeap::common_mem_allocate_noinit(KlassHandle klass, size_t si
 }
 
 HeapWord* CollectedHeap::common_mem_allocate_init(KlassHandle klass, size_t size, TRAPS) {
+  // 分配内存
   HeapWord* obj = common_mem_allocate_noinit(klass, size, CHECK_NULL);
+  // 对分配的内存进行部分初始化
   init_obj(obj, size);
   return obj;
 }
 
+// 从TLAB中分配内存
 HeapWord* CollectedHeap::allocate_from_tlab(KlassHandle klass, Thread* thread, size_t size) {
   assert(UseTLAB, "should use UseTLAB");
 
@@ -187,6 +195,7 @@ HeapWord* CollectedHeap::allocate_from_tlab(KlassHandle klass, Thread* thread, s
     return obj;
   }
   // Otherwise...
+  // 可能分配新的TLAB，然后在新的TLAB中分配内存
   return allocate_from_tlab_slow(klass, thread, size);
 }
 
@@ -202,7 +211,9 @@ oop CollectedHeap::obj_allocate(KlassHandle klass, int size, TRAPS) {
   debug_only(check_for_valid_allocation_state());
   assert(!Universe::heap()->is_gc_active(), "Allocation during gc not allowed");
   assert(size >= 0, "int won't convert to size_t");
+  // 在堆中分配指定size大小的内存并对这块内存进行清零操作
   HeapWord* obj = common_mem_allocate_init(klass, size, CHECK_NULL);
+  // 对对象进行初始化
   post_allocation_setup_obj(klass, obj);
   NOT_PRODUCT(Universe::heap()->check_for_bad_heap_word_value(obj, size));
   return (oop)obj;

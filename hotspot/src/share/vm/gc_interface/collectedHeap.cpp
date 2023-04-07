@@ -253,10 +253,16 @@ void CollectedHeap::check_for_valid_allocation_state() {
 }
 #endif
 
+// 这个函数可能会开辟一个新的TLAB，然后在这个新的TLAB中为对象分配内存。
 HeapWord* CollectedHeap::allocate_from_tlab_slow(KlassHandle klass, Thread* thread, size_t size) {
+
+  // TLAB内存分配失败，所以函数可直接判断TLAB中剩下的空闲空间是否可以丢弃。
+  // 具体就是将TLAB的剩余空间与之前已经计算好出来的保存在ThreadLocalAllocBuffer中的_refill_waste_limit进行比较，
+  // 如果大于_refill_waste_limit则不能丢弃，只能在TLAB之外分配，否则要尝试分配一个新的TLAB。
 
   // Retain tlab and allocate object in shared space if
   // the amount free in the tlab is too large to discard.
+  // 如果TLAB中的剩余空间太多，但是不足以为对象分配内存，则只能从年轻代的Eden空间或老年代中分配
   if (thread->tlab().free() > thread->tlab().refill_waste_limit()) {
     thread->tlab().record_slow_allocation(size);
     return NULL;
@@ -264,6 +270,7 @@ HeapWord* CollectedHeap::allocate_from_tlab_slow(KlassHandle klass, Thread* thre
 
   // Discard tlab and allocate a new one.
   // To minimize fragmentation, the last TLAB may be smaller than the rest.
+  // 丢弃原TLAB，分配一个新的TLAB，首先计算新分配的TLAB的大小
   size_t new_tlab_size = thread->tlab().compute_size(size);
 
   thread->tlab().clear_before_allocation();
@@ -272,7 +279,7 @@ HeapWord* CollectedHeap::allocate_from_tlab_slow(KlassHandle klass, Thread* thre
     return NULL;
   }
 
-  // Allocate a new TLAB...
+  // Allocate a new TLAB... // 分配一个新的TLAB
   HeapWord* obj = Universe::heap()->allocate_new_tlab(new_tlab_size);
   if (obj == NULL) {
     return NULL;
@@ -281,7 +288,7 @@ HeapWord* CollectedHeap::allocate_from_tlab_slow(KlassHandle klass, Thread* thre
   AllocTracer::send_allocation_in_new_tlab_event(klass, new_tlab_size * HeapWordSize, size * HeapWordSize);
 
   if (ZeroTLAB) {
-    // ..and clear it.
+    // ..and clear it. // 将新分配的内存清零
     Copy::zero_to_words(obj, new_tlab_size);
   } else {
     // ...and zap just allocated object.

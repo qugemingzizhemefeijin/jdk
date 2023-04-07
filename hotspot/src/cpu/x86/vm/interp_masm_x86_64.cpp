@@ -188,13 +188,15 @@ void InterpreterMacroAssembler::check_and_handle_earlyret(Register java_thread) 
 }
 
 
-void InterpreterMacroAssembler::get_unsigned_2_byte_index_at_bcp(
-  Register reg,
-  int bcp_offset) {
+void InterpreterMacroAssembler::get_unsigned_2_byte_index_at_bcp(Register reg, int bcp_offset) {
   assert(bcp_offset >= 0, "bcp is still pointing to start of bytecode");
-  load_unsigned_short(reg, Address(r13, bcp_offset));
-  bswapl(reg);
-  shrl(reg, 16);
+  // 加载操作数并保存到%rdx中                                   // %r13保存当前解释器的字节码指令地址，
+                                                            // 将此地址偏移1个字节后获取2个字节的内容并加载到%edx中
+  load_unsigned_short(reg, Address(r13, bcp_offset));       // 0x00007fffe1022b10: movzwl 0x1(%r13),%edx
+                                                            // bswap会让32位寄存器%edx中存储的内容进行字节次序反转
+  bswapl(reg);                                              // 0x00007fffe1022b15: bswap %edx
+                                                            // shr会将%edx中的内容右移16位
+  shrl(reg, 16);                                            // 0x00007fffe1022b17: shr $0x10,%edx
 }
 
 

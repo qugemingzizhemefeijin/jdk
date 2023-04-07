@@ -36,21 +36,38 @@ float AdaptiveWeightedAverage::compute_adaptive_average(float new_sample,
   unsigned count_weight = 0;
 
   // Avoid division by zero if the counter wraps (7158457)
+  // 当采样数不大于100时，is_old()函数将返回false
+  // 次数权重 = 100 / 次数
   if (!is_old()) {
     count_weight = OLD_THRESHOLD/count();
   }
-
+  // 计算权重 = 次数权重 与 TLABAllocationWeight 中的最大值
   unsigned adaptive_weight = (MAX2(weight(), count_weight));
 
+  // 公式中的weight由TLABAllocationWeight参数决定，如果不设置的话，默认是35。
+
+  // TLAB的大小计算和线程数量有关，但是线程是动态创建销毁的，因此需要基于历史线程个数推测接下来的线程个数从而计算TLAB的大小。
+  // 一般而言，HotSpot VM内像exp_avg()这种预测函数都采用EMA（Exponential Moving Average指数平均数）算法进行预测。
+  // 指数平均数代表权重，权重越高，最近的数据占比影响越大。
+  // 可以看出TLABAllocationWeight越大，则最近的线程数量对于预测下次会分配TLAB的期望线程个数影响越大。
+
+  // 采样次数小于等于100时， 计算公式为：
+  // 新的平均值 = (100% - 计算权重%) * 之前的平均值 + 计算权重% * 当前采样值
+
+  // 采样次数大于100时， 每次采样:
+  // 新的平均值 = (100% - TLABAllocationWeight %) * 之前的平均值 + TLABAllocationWeight % * 当前采样值
   float new_avg = exp_avg(average, new_sample, adaptive_weight);
 
   return new_avg;
 }
 
+// new_sample参数值为1，表示第1次采样
 void AdaptiveWeightedAverage::sample(float new_sample) {
+  // 统计采样次数，当采样次数不大于100时和大于100时的权重计算稍有不同。
   increment_count();
 
   // Compute the new weighted average
+  // 计算新的加权平均值，average()函数获取_average参数的值，默认为0
   float new_avg = compute_adaptive_average(new_sample, average());
   set_average(new_avg);
   _last_sample = new_sample;

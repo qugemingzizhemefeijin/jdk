@@ -52,6 +52,25 @@ class GlobalTLABStats;
 // ThreadLocalAllocBuffer类中并没有专门用于释放内存的函数。因为它管理的是线程本地分配缓存（TLAB），它的生命周期是随着线程的生命周期而自动管理的。
 // 当线程被销毁时，其TLAB中的内存将会被自动释放，这是由JVM内部的垃圾回收机制完成的。
 
+// 通常，TLAB的最大值不会大于int[Integer.MAX_VALUE]，因为在分配新的TLAB时，原TLAB中未分配给对象的剩余内存需要填充整数类型的数组，
+// 这个被填充的数组叫作dummy object，这样内存空间就是可解析的，非常有利于提高GC的扫描效率。为了一定能有填充dummy object的空间，
+// TLAB一般会预留一个dummy object的header的空间，也是一个int[]的header，所以TLAB的值不能超过int数组的最大值，
+// 否则无法用dummy object填满未使用的空间。
+
+// 在理想状态下，线程的所有对象分配都希望在TLAB中进行，当线程进行了refill次新TLAB分配行为后，正好占满Eden空间。
+// 不过实际情况是，总会有内存被填充了dummy object而造成浪费，另外，当GC发生时，无论当前正在进行对象分配的TLAB剩余空闲有多大，
+// 都会被填充，每次分配的比例如何确定呢？从概率上说，GC可能会在任何时候发生，即对于某一时刻而言，GC发生的概率为0.5。
+// 如果按照TLABWasteTargetPercent的默认设定，说明浪费的内存不超过1%，那么在0.5的概率时浪费的情况下TLAB分配的比例是多少才让浪费的期望值小于1%呢？
+// 答案是2%的比例。
+
+// 在ThreadLocalAllocBuffer::initialize()函数中调用initial_refill_waste_limit()函数计算_refill_waste_limit的初始值，
+// 计算出来后通过ThreadLocalAllocBuffer类中的_refill_waste_limit变量保存。
+
+// 当请求对象大于_refill_waste_limit时，会选择在堆中分配，若小于该值，则会废弃当前TLAB，新建TLAB来分配对象。
+// 这个阈值可以使用-XX:TLABRefillWasteFraction命令来调整，表示TLAB中允许产生这种浪费的比例。
+// 默认值为64，即表示使用约为1/64的TLAB空间作为_refill_waste_limit。
+// 默认情况下，TLAB和_refill_waste_limit都会在运行时不断调整，使系统的运行状态达到最优。
+
 // TLAB本身占用eEden区空间，在开启TLAB的情况下，虚拟机会为每个Java线程分配一块TLAB空间。
 // 参数-XX:+UseTLAB开启TLAB，默认是开启的。TLAB空间的内存非常小，缺省情况下仅占有整个Eden空间的1%，当然可以通过选项-XX:TLABWasteTargetPercent设置TLAB空间所占用Eden空间的百分比大小。
 
@@ -170,7 +189,7 @@ public:
   // Record slow allocation
   inline void record_slow_allocation(size_t obj_size);
 
-  // Initialization at startup
+  // Initialization at startup // TLAB初始化
   static void startup_initialization();
 
   // Make an in-use tlab parsable, optionally also retiring it.

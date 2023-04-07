@@ -4937,7 +4937,7 @@ void MacroAssembler::store_heap_oop_null(Address dst) {
 void MacroAssembler::store_klass_gap(Register dst, Register src) {
   if (UseCompressedClassPointers) {
     // Store to klass gap in destination
-    movl(Address(dst, oopDesc::klass_gap_offset_in_bytes()), src);
+    movl(Address(dst, oopDesc::klass_gap_offset_in_bytes()), src);      // 0x00007fffe1022bc9: mov %rsi,0x8(%rax)
   }
 }
 

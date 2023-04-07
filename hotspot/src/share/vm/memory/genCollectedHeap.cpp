@@ -968,7 +968,10 @@ size_t GenCollectedHeap::unsafe_max_tlab_alloc(Thread* thr) const {
   return result;
 }
 
+// 为某一线程申请一块本地分配缓冲区TLAB
 HeapWord* GenCollectedHeap::allocate_new_tlab(size_t size) {
+  // gc_overhead_limit_was_exceeded参数表示这次内存分配是否发生了GC并且GC的时间超过了设置的时间。
+  // 这个设计主要是为了满足那些对延时敏感的场景，也就是当gc_overhead_limit_was_exceeded为true时，给上层应用抛出OOM异常以便其进行恰当的处理。
   bool gc_overhead_limit_was_exceeded;
   return collector_policy()->mem_allocate_work(size /* size */,
                                                true /* is_tlab */,
