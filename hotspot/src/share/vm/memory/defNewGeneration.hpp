@@ -263,27 +263,36 @@ protected:
   void space_iterate(SpaceClosure* blk, bool usedOnly = false);
 
   // Allocation support
+  // 判断对应的内存代是否支持这次分配的请求
   virtual bool should_allocate(size_t word_size, bool is_tlab) {
     assert(UseTLAB || !is_tlab, "Should not allocate tlab");
-
+    // 在64位系统下，BitsPerSize_t的值为64，LogHeapWordSize的值为3
     size_t overflow_limit    = (size_t)1 << (BitsPerSize_t - LogHeapWordSize);
 
     const bool non_zero      = word_size > 0;
     const bool overflows     = word_size >= overflow_limit;
+    // 检查申请的内存是否太大，check_too_big为true时，对象直接在old区分配内存
     const bool check_too_big = _pretenure_size_threshold_words > 0;
     const bool not_too_big   = word_size < _pretenure_size_threshold_words;
     const bool size_ok       = is_tlab || !check_too_big || not_too_big;
 
-    bool result = !overflows &&
-                  non_zero   &&
-                  size_ok;
+    bool result = !overflows && // 申请的内存空间未溢出
+                  non_zero   && // 申请的内存大小不为0
+                  size_ok;      // 申请的内存未超过本内存代的限制阈值
 
     return result;
   }
 
+  // 普通分配内存（普通分配约定的是一种串行分配，即不保证多线程安全，如果外部调用者存在多线程调用的情况则必须使用全局锁来确保多线程的安全）
+  // DefNewGeneration在全局锁状态下进行内存分配的大致策略如下：
+  // - 以并行的方式快速从Eden空间分配内存；
+  // - 以扩展Eden空间内存的方式分配内存；
+  // - 从From Survivor空间分配内存。
   HeapWord* allocate(size_t word_size, bool is_tlab);
+  // 从From中分配内存
   HeapWord* allocate_from_space(size_t word_size);
 
+  // 快速分配内存
   HeapWord* par_allocate(size_t word_size, bool is_tlab);
 
   // Prologue & Epilogue

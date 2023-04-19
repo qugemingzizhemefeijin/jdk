@@ -329,8 +329,10 @@ HeapWord* GenCollectedHeap::attempt_allocation(size_t size,
                                                bool is_tlab,
                                                bool first_only) {
   HeapWord* res;
+  // 在Serial和Serial Old回收器中，堆被分为年轻代和老年代，因此_n_gens的值为2
   for (int i = 0; i < _n_gens; i++) {
     if (_gens[i]->should_allocate(size, is_tlab)) {
+      // 如果该函数返回true，则尝试在allocate()函数中分配内存
       res = _gens[i]->allocate(size, is_tlab);
       if (res != NULL) return res;
       else if (first_only) break;
@@ -342,6 +344,9 @@ HeapWord* GenCollectedHeap::attempt_allocation(size_t size,
 
 HeapWord* GenCollectedHeap::mem_allocate(size_t size,
                                          bool* gc_overhead_limit_was_exceeded) {
+  // 在使用Serial和Serial Old收集器时，内存堆管理器GenCollectedHeap的默认GC策略实现是MarkSweepPolicy
+  // 在分配新的TLAB或无法在TLAB中为对象分配内存时都可能调用下面函数，如果为TLAB分配内存，那么is_tlab参数的值为true
+  // openjdk/hotspot/src/share/vm/memory/collectorPolicy.cpp GenCollectorPolicy::mem_allocate_work
   return collector_policy()->mem_allocate_work(size,
                                                false /* is_tlab */,
                                                gc_overhead_limit_was_exceeded);

@@ -527,8 +527,10 @@ HeapWord* DefNewGeneration::allocate_from_space(size_t size) {
                         Heap_lock->is_locked() ? "locked" : "unlocked",
                         from()->free());
   }
+  // 支持在From Survivor空间中分配内存，或当前正在进行GC操作时可能会从From Survivor空间中分配内存
   if (should_allocate_from_space() || GC_locker::is_active_and_needs_gc()) {
-    if (Heap_lock->owned_by_self() ||
+    if (Heap_lock->owned_by_self() ||                       // 当前线程拥有堆的全局锁
+        // 执行GC的VMThread线程借助From Survivor空间完成一些安全点下的操作
         (SafepointSynchronize::is_at_safepoint() &&
          Thread::current()->is_VM_thread())) {
       // If the Heap_lock is not locked by this thread, this will be called
@@ -1053,17 +1055,21 @@ HeapWord* DefNewGeneration::allocate(size_t word_size,
   // We try to allocate from the eden.  If that works, we are happy.
   // Note that since DefNewGeneration supports lock-free allocation, we
   // have to use it here, as well.
-  HeapWord* result = eden()->par_allocate(word_size);
+  // 1.以并行的方式快速从Eden空间分配内存
+  HeapWord* result = eden()->par_allocate(word_size);   // 快速分配
   if (result != NULL) {
     if (CMSEdenChunksRecordAlways && _next_gen != NULL) {
       _next_gen->sample_eden_chunk();
     }
     return result;
   }
+  // 2.扩展Eden空间内存空间的方式分配内存
   do {
     HeapWord* old_limit = eden()->soft_end();
     if (old_limit < eden()->end()) {
       // Tell the next generation we reached a limit.
+      // 通知下一个内存代管理器，Eden区的使用达到了逻辑(软)限制
+      // 由下一个内存代管理器来决定Eden区新的(软)限制位置
       HeapWord* new_limit =
         next_gen()->allocation_limit_reached(eden(), eden()->top(), word_size);
       if (new_limit != NULL) {
@@ -1079,6 +1085,7 @@ HeapWord* DefNewGeneration::allocate(size_t word_size,
       break;
     }
     // Try to allocate until succeeded or the soft limit can't be adjusted
+    // 重试，直到内存分配成功或者软引用限制不能再调整
     result = eden()->par_allocate(word_size);
   } while (result == NULL);
 
@@ -1086,7 +1093,9 @@ HeapWord* DefNewGeneration::allocate(size_t word_size,
   // out of heap space, and we try to allocate the from-space, too.
   // allocate_from_space can't be inlined because that would introduce a
   // circular dependency at compile time.
-  if (result == NULL) {
+  // 如果Eden已满并且最后一个集合已获救助，则堆空间不足，我们也尝试分配from区的空间。allocate_from_space不能内联，因为这会在编译时引入循环依赖项。
+  // 从From Survivor空间分配内存
+  if (result == NULL) { // Eden区没有足够的空间,则从From区分配
     result = allocate_from_space(word_size);
   } else if (CMSEdenChunksRecordAlways && _next_gen != NULL) {
     _next_gen->sample_eden_chunk();

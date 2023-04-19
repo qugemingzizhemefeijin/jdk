@@ -258,6 +258,7 @@ class GenCollectorPolicy : public CollectorPolicy {
   DEBUG_ONLY(void assert_size_info();)
 
   // Try to allocate space by expanding the heap.
+  // 扩展内存并再尝试申请内存块
   virtual HeapWord* expand_heap_and_allocate(size_t size, bool is_tlab);
 
   // Compute max heap alignment

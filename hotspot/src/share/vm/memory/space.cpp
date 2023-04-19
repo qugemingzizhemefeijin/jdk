@@ -853,18 +853,20 @@ inline HeapWord* ContiguousSpace::par_allocate_impl(size_t size,
                                                     HeapWord* const end_value) {
   do {
     HeapWord* obj = top();
+    // 如果内存区当前的空闲空间足够分配，则尝试分配
     if (pointer_delta(end_value, obj) >= size) {
       HeapWord* new_top = obj + size;
       HeapWord* result = (HeapWord*)Atomic::cmpxchg_ptr(new_top, top_addr(), obj);
       // result can be one of two:
       //  the old top value: the exchange succeeded
       //  otherwise: the new value of the top is returned.
+      // 当CAS操作成功时，result等于obj，表示内存分配成功，否则循环，再次尝试分配
       if (result == obj) {
         assert(is_aligned(obj) && is_aligned(new_top), "checking alignment");
-        return obj;
+        return obj; // 分配成功时返回内存块首地址
       }
     } else {
-      return NULL;
+      return NULL;  // 分配失败时返回
     }
   } while (true);
 }

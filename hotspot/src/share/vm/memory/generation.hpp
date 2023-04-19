@@ -271,7 +271,12 @@ class Generation: public CHeapObj<mtGC> {
   virtual bool should_allocate(size_t word_size, bool is_tlab) {
     bool result = false;
     size_t overflow_limit = (size_t)1 << (BitsPerSize_t - LogHeapWordSize);
+    // 当is_tlab参数的值为true时，should_allocate()函数直接返回false，表示老年代不支持TLAB内存的分配。
+    // supports_tlab_allocation()函数只有DefNewGeneration才会返回true，所以TLAB只有在年轻代中分配。
+    // 如果不是为TLAB分配内存，那么内存大小不能超过阈值限制并且分配的内存大于0时，
+    // should_allocate()函数将返回true，表示在老年代中支持此次内存分配请求。
     if (!is_tlab || supports_tlab_allocation()) {
+      // result为true时，表示小对象
       result = (word_size > 0) && (word_size < overflow_limit);
     }
     return result;

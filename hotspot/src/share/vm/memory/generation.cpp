@@ -436,14 +436,17 @@ bool CardGeneration::expand(size_t bytes, size_t expand_bytes) {
   }
   size_t aligned_expand_bytes = ReservedSpace::page_align_size_up(expand_bytes);
   bool success = false;
+  // 当扩容的容量小于每次扩容要求的最小容量时，按要求的最小容量扩容
   if (aligned_expand_bytes > aligned_bytes) {
     success = grow_by(aligned_expand_bytes);
   }
+  // 当未扩容或扩容不成功时，按要求的容量进行扩容
   if (!success) {
     success = grow_by(aligned_bytes);
   }
+  // 当扩容不成功时，表示剩余的容量小于aligned_expand_bytes和aligned_bytes，只能进行有限的扩容
   if (!success) {
-    success = grow_to_reserved();
+    success = grow_to_reserved();   // 只扩容了剩余的容量
   }
   if (PrintGC && Verbose) {
     if (success && GC_locker::is_active_and_needs_gc()) {
@@ -659,6 +662,7 @@ OneContigSpaceCardGeneration::expand_and_allocate(size_t word_size,
                                                   bool parallel) {
   assert(!is_tlab, "OneContigSpaceCardGeneration does not support TLAB allocation");
   if (parallel) {
+    // 多线程并行扩容的逻辑
     MutexLocker x(ParGCRareEvent_lock);
     HeapWord* result = NULL;
     size_t byte_size = word_size * HeapWordSize;
@@ -679,13 +683,16 @@ OneContigSpaceCardGeneration::expand_and_allocate(size_t word_size,
       }
     }
   } else {
+    // 表示每一次扩容时的最小值，防止扩容太小导致频繁地执行扩容操作
     expand(word_size*HeapWordSize, _min_heap_delta_bytes);
     return _the_space->allocate(word_size);
   }
 }
 
 bool OneContigSpaceCardGeneration::expand(size_t bytes, size_t expand_bytes) {
+  // 加锁解决多线程问题，保证任何时刻只有一个线程在执行扩容操作
   GCMutexLocker x(ExpandHeap_lock);
+  // 该函数实现在CardGeneration类中，是因为在扩容的同时还需要对卡表进行相应的扩容，而CardGeneration类正是针对卡表操作而定义的。
   return CardGeneration::expand(bytes, expand_bytes);
 }
 
@@ -727,14 +734,15 @@ size_t OneContigSpaceCardGeneration::contiguous_available() const {
 
 bool OneContigSpaceCardGeneration::grow_by(size_t bytes) {
   assert_locked_or_safepoint(ExpandHeap_lock);
+  // 对内存代扩容
   bool result = _virtual_space.expand_by(bytes);
   if (result) {
     size_t new_word_size =
        heap_word_size(_virtual_space.committed_size());
     MemRegion mr(_the_space->bottom(), new_word_size);
-    // Expand card table
+    // Expand card table // 对卡表进行扩容
     Universe::heap()->barrier_set()->resize_covered_region(mr);
-    // Expand shared block offset array
+    // Expand shared block offset array  // 对卡表扩容的同时，还需要对对象偏移表进行扩容
     _bts->resize(new_word_size);
 
     // Fix for bug #4668531
@@ -762,10 +770,11 @@ bool OneContigSpaceCardGeneration::grow_by(size_t bytes) {
   return result;
 }
 
-
+// 有限的扩容
 bool OneContigSpaceCardGeneration::grow_to_reserved() {
   assert_locked_or_safepoint(ExpandHeap_lock);
   bool success = true;
+  // 调用uncommitted_size()函数获取剩余容量的大小，然后调用grouw_by()函数进行扩容即可
   const size_t remaining_bytes = _virtual_space.uncommitted_size();
   if (remaining_bytes > 0) {
     success = grow_by(remaining_bytes);

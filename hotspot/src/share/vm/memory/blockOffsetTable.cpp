@@ -186,11 +186,14 @@ BlockOffsetArray::set_remainder_to_point_to_start_incl(size_t start_card, size_t
   assert(_array->offset_array(start_card-1) <= N_words,
     "Offset card has an unexpected value");
   size_t start_card_for_region = start_card;
+  // max_jubyte=255，因为是用一个字节来表示偏移，所以最大为255，而512字节的块内按字表示时最大値为64，255值已经足够表示距离
   u_char offset = max_jubyte;
+  // N_powers是一个枚举值，等于14，对象占用的卡页不可能太多，因此这个值已经足够大
   for (int i = 0; i < N_powers; i++) {
     // -1 so that the the card with the actual offset is counted.  Another -1
     // so that the reach ends in this region and not at the start
     // of the next.
+    // 这里有两个-1，第一个是保证start_card包含在里面，第二个是保证end_card不会是下一个区域的start
     size_t reach = start_card - 1 + (power_to_cards_back(i+1) - 1);
     offset = N_words + i;
     if (reach >= end_card) {
@@ -200,7 +203,7 @@ BlockOffsetArray::set_remainder_to_point_to_start_incl(size_t start_card, size_t
     }
     _array->set_offset_array(start_card_for_region, reach, offset, reducing);
     start_card_for_region = reach + 1;
-  }
+  } // 结束循环
   assert(start_card_for_region > end_card, "Sanity check");
   DEBUG_ONLY(check_all_cards(start_card, end_card);)
 }
@@ -512,6 +515,7 @@ BlockOffsetArrayNonContigSpace::mark_block(HeapWord* blk_start,
   do_block_internal(blk_start, blk_end, Action_mark, reducing);
 }
 
+// 查找一个大对象的开始地址
 HeapWord* BlockOffsetArrayNonContigSpace::block_start_unsafe(
   const void* addr) const {
   assert(_array->offset_array(0) == 0, "objects can't cross covered areas");
@@ -526,6 +530,7 @@ HeapWord* BlockOffsetArrayNonContigSpace::block_start_unsafe(
   }
 
   // Otherwise, find the block start using the table.
+  // 使用偏移表记录的信息查找对象的开始地址
   size_t index = _array->index_for(addr);
   HeapWord* q = _array->address_for_index(index);
 
@@ -558,7 +563,7 @@ HeapWord* BlockOffsetArrayNonContigSpace::block_start_unsafe(
   while (n <= addr) {
     debug_only(HeapWord* last = q);   // for debugging
     q = n;
-    n += _sp->block_size(n);
+    n += _sp->block_size(n); // 获取对象的大小
     assert(n > q,
            err_msg("Looping at n = " PTR_FORMAT " with last = " PTR_FORMAT","
                    " while querying blk_start(" PTR_FORMAT ")"
@@ -710,6 +715,7 @@ HeapWord* BlockOffsetArrayContigSpace::block_start_unsafe(const void* addr) cons
 
 void BlockOffsetArrayContigSpace::alloc_block_work(HeapWord* blk_start,
                                         HeapWord* blk_end) {
+  // 断言对象跨卡页
   assert(blk_start != NULL && blk_end > blk_start,
          "phantom block");
   assert(blk_end > _next_offset_threshold,
@@ -731,28 +737,38 @@ void BlockOffsetArrayContigSpace::alloc_block_work(HeapWord* blk_start,
   // Mark the card that holds the offset into the block.  Note
   // that _next_offset_index and _next_offset_threshold are not
   // updated until the end of this method.
+  // 在偏移表中存储的是卡中最后一个对象的开始地址（开始地址必须在当前卡中）到卡末尾的距离
   _array->set_offset_array(_next_offset_index,
                            _next_offset_threshold,
                            blk_start);
 
   // We need to now mark the subsequent cards that this blk spans.
 
+  // 如果对象跨多个卡页，则偏移表同样要记录相关信息
+
   // Index of card on which blk ends.
+  // 计算对象末尾在哪个卡页，获取这个卡页对应的偏移表槽索引
   size_t end_index   = _array->index_for(blk_end - 1);
 
   // Are there more cards left to be updated?
+  // 如果满足以下判断条件，则说明对象至少跨越了一个完整的卡页
   if (_next_offset_index + 1 <= end_index) {
+    // 记录_next_offset_index + 1偏移表索引对应的卡页开始地址
     HeapWord* rem_st  = _array->address_for_index(_next_offset_index + 1);
     // Calculate rem_end this way because end_index
     // may be the last valid index in the covered region.
+    // N_words为64，就是512个字节为一个块
     HeapWord* rem_end = _array->address_for_index(end_index) +  N_words;
     set_remainder_to_point_to_start(rem_st, rem_end);
   }
 
   // _next_offset_index and _next_offset_threshold updated here.
+  // 对_next_offset_index和_next_offset_threshold进行更新
   _next_offset_index = end_index + 1;
   // Calculate _next_offset_threshold this way because end_index
   // may be the last valid index in the covered region.
+  // 偏移表中存储的是卡页中最后一个对象的开始地址（开始地址必须在当前卡页中）到卡末尾的距离。
+  // 需要注意的是，这个距离记录在了_next_offset_index索引对应的槽位上。
   _next_offset_threshold = _array->address_for_index(end_index) + N_words;
   assert(_next_offset_threshold >= blk_end, "Incorrect offset threshold");
 

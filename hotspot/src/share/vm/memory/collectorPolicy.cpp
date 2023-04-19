@@ -699,6 +699,7 @@ void TwoGenerationCollectorPolicy::initialize_size_info() {
 }
 
 // 用于从Java堆中分配指定大小的内存块，并在必要时触发GC
+// @param is_tlab 是否为tlab分配内存
 HeapWord* GenCollectorPolicy::mem_allocate_work(size_t size,
                                         bool is_tlab,
                                         bool* gc_overhead_limit_was_exceeded) {
@@ -725,6 +726,8 @@ HeapWord* GenCollectorPolicy::mem_allocate_work(size_t size,
     // 通过析构函数自动丢弃掉在每次循环过程中分配的Handle
     HandleMark hm; // discard any handles allocated in each iteration
 
+    // 1. 无锁式分配
+
     // First allocation attempt is lock-free.  第一次分配尝试是无锁的。
     // 获取年轻代
     Generation *gen0 = gch->get_gen(0);
@@ -741,6 +744,8 @@ HeapWord* GenCollectorPolicy::mem_allocate_work(size_t size,
         return result;
       }
     }
+
+    // 2. 全局锁下分配
 
     // 如果不能在年轻代分配或者年轻代分配失败
     unsigned int gc_count_before;  // read inside the Heap_lock locked region  // 读取Heap_lock锁定区域内部
@@ -820,6 +825,8 @@ HeapWord* GenCollectorPolicy::mem_allocate_work(size_t size,
       gc_count_before = Universe::heap()->total_collections();
     }
 
+    // 3. 触发垃圾回收并根据垃圾回收后的结果做进一步判断
+
     // 处于关键区的线程退出了并执行GC了依然分配失败，没有线程处于关键区中，分配失败，触发GC。
     VM_GenCollectForAllocation op(size, is_tlab, gc_count_before);
     // 当前线程会被阻塞直到GC执行完成
@@ -845,7 +852,7 @@ HeapWord* GenCollectorPolicy::mem_allocate_work(size_t size,
       const bool limit_exceeded = size_policy()->gc_overhead_limit_exceeded();
       // all_soft_refs_clear返回是否清除了所有的软引用
       const bool softrefs_clear = all_soft_refs_clear();
-
+      // GC超时并且已经清除过软引用，那么说明内存不足
       if (limit_exceeded && softrefs_clear) {
         *gc_overhead_limit_was_exceeded = true;
         // 重置gc_overhead_limit_exceeded属性
@@ -854,8 +861,10 @@ HeapWord* GenCollectorPolicy::mem_allocate_work(size_t size,
           // 填充对象，因为GC耗时超了，为了避免后期GC耗时越来越长，所以认为内存分配失败，需要抛出异常
           CollectedHeap::fill_with_object(op.result(), size);
         }
+        // GC超时，给上层调用返回NULL，让其抛出内存溢出错误
         return NULL;
       }
+      // 分配成功则确保该内存块一定在内存堆中
       assert(result == NULL || gch->is_in_reserved(result),
              "result not in heap");
       return result;
@@ -872,11 +881,13 @@ HeapWord* GenCollectorPolicy::mem_allocate_work(size_t size,
   }
 }
 
+// 通过扩展内存堆中的某内存代容量的方式尝试分配申请的内存块，优先扩展老年代的内存容量。
+// 如果老年代的内存容量扩容后仍然不能满足分配要求，会继续扩容年轻代的内存容量。
 HeapWord* GenCollectorPolicy::expand_heap_and_allocate(size_t size,
                                                        bool   is_tlab) {
   GenCollectedHeap *gch = GenCollectedHeap::heap();
   HeapWord* result = NULL;
-  // 遍历所有的Generation
+  // 遍历所有的Generation（反着遍历的）
   for (int i = number_of_generations() - 1; i >= 0 && result == NULL; i--) {
     Generation *gen = gch->get_gen(i);
     if (gen->should_allocate(size, is_tlab)) {
@@ -1087,8 +1098,8 @@ MetaWord* CollectorPolicy::satisfy_failed_metadata_allocation(
 //   have) failed and is likely to fail again
 // 如果满足以下任一条件，则返回 true：
 // - 不适合分配在当前的年轻代
-// - GC锁被占用（JNI关键区）
-// - 堆内存很紧张。（最近的上一个堆满了，因为一部分堆失败了并且会再次失败）？？
+// - GC锁被占用（因为有Mutator线程在JNI临界区执行，阻塞了GC线程）
+// - 堆内存很紧张。（上一次增量式GC失败，这一次也极有可能会失败，因此需要尝试到更老的内存代中分配内存）
 bool GenCollectorPolicy::should_try_older_generation_allocation(
         size_t word_size) const {
   GenCollectedHeap* gch = GenCollectedHeap::heap();

@@ -150,6 +150,7 @@ class BlockOffsetSharedArray: public CHeapObj<mtGC> {
     assert(pointer_delta(high, low) <= N_words, "offset too large");
     assert(!reducing || _offset_array[index] >=  (u_char)pointer_delta(high, low),
            "Not reducing");
+    // 存储的距离以字为单位计量
     _offset_array[index] = (u_char)pointer_delta(high, low);
   }
 
@@ -186,6 +187,7 @@ class BlockOffsetSharedArray: public CHeapObj<mtGC> {
     // because on certain platforms memset() can give concurrent
     // readers "out-of-thin-air," phantom zeros; see 6948537.
     if (UseMemSetInBOT) {
+      // 从&_offset_array[left]地址开始，将num_cards个字节初始化为offset值
       memset(&_offset_array[left], offset, num_cards);
     } else {
       size_t i = left;
@@ -284,8 +286,8 @@ class BlockOffsetArray: public BlockOffsetTable {
     N_powers = 14
   };
 
-  static size_t power_to_cards_back(uint i) {
-    return (size_t)1 << (LogBase * i);
+  static size_t power_to_cards_back(uint i) {   // 卡后退
+    return (size_t)1 << (LogBase * i);          // 2^(4*i)
   }
   static size_t power_to_words_back(uint i) {
     return power_to_cards_back(i) * N_words;
@@ -548,6 +550,16 @@ class BlockOffsetArrayContigSpace: public BlockOffsetArray {
   // In this implementation, however, we are OK even if blk_start and/or
   // blk_end are NULL because NULL is represented as 0, and thus
   // never exceeds the "_next_offset_threshold".
+  // _next_offset_threshold通常指向正在分配的内存页的尾地址边界，当blk_end大于这个边界值时，
+  // 说明要进行跨页存储对象，此时需要对对象偏移表进行操作。如果当前对象跨页，那么这个对象就是正在分配的内存页的最后一个对象（对象首地址在此内存页中），
+  // 需要在此内存页A的下一个内存页B对应的偏移表项中存储一个距离，这个距离就是最后一个对象首地址距离内存页A尾的距离。
+  //                 | 待分配对象1     |
+  //                 | 待分配对象2             |
+  // |  已分配的内存   | 未分配的内存     |    空白卡页            |
+  // {           512字节的卡页     }{       512字节的卡页    }
+  //                 |<------------>|
+  //              需要在偏移表中↑记录的距离            ↑
+  //               _next_offset_threshold     _next_offset_index
   void alloc_block(HeapWord* blk_start, HeapWord* blk_end) {
     if (blk_end > _next_offset_threshold) {
       alloc_block_work(blk_start, blk_end);

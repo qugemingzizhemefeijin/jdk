@@ -89,6 +89,9 @@ public:
 
 protected:
   // Helper functions for allocation
+  // 从内存堆的各内存代中依次尝试分配指定大小的内存块
+  // @param is_tlab    是否从tlab中分配
+  // @param first_only true时只在年轻代尝试分配；为false时先在年轻代尝试分配，分配失败时在老年代中尝试分配
   HeapWord* attempt_allocation(size_t size,
                                bool   is_tlab,
                                bool   first_only);
@@ -159,6 +162,7 @@ public:
 
   size_t max_capacity() const;
 
+  // 在堆中分配内存，分配成功后返回内存块的起始地址
   HeapWord* mem_allocate(size_t size,
                          bool*  gc_overhead_limit_was_exceeded);
 

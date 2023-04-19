@@ -48,14 +48,17 @@ inline size_t BlockOffsetSharedArray::index_for(const void* p) const {
   assert(pc >= (char*)_reserved.start() &&
          pc <  (char*)_reserved.end(),
          "p not in range.");
+  // 算出来的delta是字节的数量
   size_t delta = pointer_delta(pc, _reserved.start(), sizeof(char));
   size_t result = delta >> LogN;
   assert(result < _vs.committed_size(), "bad index from address");
   return result;
 }
 
+// 传入_next_offset_index+1或end_index计算对应内存卡页的首地址
 inline HeapWord* BlockOffsetSharedArray::address_for_index(size_t index) const {
   assert(index < _vs.committed_size(), "bad index");
+  // LogN_words=6，index是字，因此只需要向左移动6位即可
   HeapWord* result = _reserved.start() + (index << LogN_words);
   assert(result >= _reserved.start() && result < _reserved.end(),
          "bad address from index");
