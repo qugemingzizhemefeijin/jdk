@@ -790,17 +790,24 @@ TosState as_TosState(BasicType type);
 // Given a state, the xxx_trans state can always be found by adding 1.
 //
 enum JavaThreadState {
+  // 不应该有的状态
   _thread_uninitialized     =  0, // should never happen (missing initialization)
+  // 仅用在线程启动时
   _thread_new               =  2, // just starting up, i.e., in process of being initialized
   _thread_new_trans         =  3, // corresponding transition state (not used, included for completness)
+  // 线程执行native代码
   _thread_in_native         =  4, // running in native code
   _thread_in_native_trans   =  5, // corresponding transition state
+  // 线程运行在虚拟机中
   _thread_in_vm             =  6, // running in VM
   _thread_in_vm_trans       =  7, // corresponding transition state
+  // 正在以解释或编译方式运行Java代码
   _thread_in_Java           =  8, // running in Java or in stub code
   _thread_in_Java_trans     =  9, // corresponding transition state (not used, included for completness)
+  // 阻塞在虚拟机中
   _thread_blocked           = 10, // blocked in vm
   _thread_blocked_trans     = 11, // corresponding transition state
+  // 线程共有的状态总数
   _thread_max_state         = 12  // maximum thread state+1 - used for statistics allocation
 };
 

@@ -54,7 +54,7 @@ class CardTableRS: public GenRemSet {
     return CardTableModRefBS::card_is_dirty_wrt_gen_iter(cv);
   }
 
-  CardTableModRefBSForCTRS* _ct_bs;
+  CardTableModRefBSForCTRS* _ct_bs;         // 屏障，继承自BarrierSet类
 
   virtual void younger_refs_in_space_iterate(Space* sp, OopsInGenClosure* cl);
 

@@ -464,6 +464,7 @@ public:
 class CardTableRS;
 
 // A specialization for the CardTableRS gen rem set.
+// 继承关系 CardTableModRefBSForCTRS -> CardTableExtension -> CardTableModRefBS -> ModRefBarrierSet -> BarrierSet
 class CardTableModRefBSForCTRS: public CardTableModRefBS {
   CardTableRS* _rs;
 protected:

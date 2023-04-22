@@ -421,6 +421,7 @@ class os: AllStatic {
   static bool create_main_thread(JavaThread* thread);
   static bool create_attached_thread(JavaThread* thread);
   static void pd_start_thread(Thread* thread);
+  // 启动线程
   static void start_thread(Thread* thread);
 
   static void initialize_thread(Thread* thr);

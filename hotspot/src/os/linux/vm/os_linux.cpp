@@ -817,6 +817,7 @@ static void *java_start(Thread *thread) {
   ThreadLocalStorage::set_thread(thread);
 
   OSThread* osthread = thread->osthread();
+  // 通过OSThread实例的_pthread_id保存pthread的id
   Monitor* sync = osthread->startThread_lock();
 
   // non floating stack LinuxThreads needs extra check, see above
@@ -845,6 +846,7 @@ static void *java_start(Thread *thread) {
   os::Linux::init_thread_fpu_state();
 
   // handshaking with parent thread
+  // 与创建当前pthread线程的父线程进行状态同步
   {
     MutexLockerEx ml(sync, Mutex::_no_safepoint_check_flag);
 
@@ -854,6 +856,7 @@ static void *java_start(Thread *thread) {
     sync->notify_all();
 
     // wait until os::start_thread()
+    // 新创建的os线程不会立即执行，会等os::start_thread()的通知
     while (osthread->get_state() == INITIALIZED) {
       sync->wait(Mutex::_no_safepoint_check_flag);
     }
@@ -878,9 +881,11 @@ bool os::create_thread(Thread* thread, ThreadType thr_type, size_t stack_size) {
   }
 
   // set the correct thread state
+  // 设置当前线程的状态
   osthread->set_thread_type(thr_type);
 
   // Initial state is ALLOCATED but not INITIALIZED
+  // 初始化状态为ALLOCATED
   osthread->set_state(ALLOCATED);
 
   // 将JavaThread(JVM)层线程对象与操作系统内核级线程关联起来，这样就可以通过使用JavaThread操作内核级线程 (一对一的关系)
@@ -937,6 +942,7 @@ bool os::create_thread(Thread* thread, ThreadType thr_type, size_t stack_size) {
       os::Linux::createThread_lock()->lock_without_safepoint_check();
     }
 
+    // 传入了java_start()函数的指针
     pthread_t tid;
     // 通过pthread_create方法创建内核级线程
     int ret = pthread_create(&tid, &attr, (void* (*)(void*)) java_start, thread);
@@ -959,6 +965,7 @@ bool os::create_thread(Thread* thread, ThreadType thr_type, size_t stack_size) {
     osthread->set_pthread_id(tid);
 
     // Wait until child thread is either initialized or aborted
+    // 当前线程等待，直到创建的pthread子线程初始化完成或者退出
     {
       Monitor* sync_with_child = osthread->startThread_lock();
       MutexLockerEx ml(sync_with_child, Mutex::_no_safepoint_check_flag);

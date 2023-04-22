@@ -48,6 +48,7 @@ size_t CardTableModRefBS::cards_required(size_t covered_words)
 {
   // Add one for a guard card, used to detect errors.
   const size_t words = align_size_up(covered_words, card_size_in_words);
+  // 由于卡表中1个字节表示堆中的512字节所以需要用words除以card_size_in_words，得到的结果加1是因为卡表需要有守护页
   return words / card_size_in_words + 1;
 }
 

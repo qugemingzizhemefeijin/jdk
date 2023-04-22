@@ -94,6 +94,7 @@ static volatile int TryingToBlock = 0 ;    // proximate value -- for advisory us
 static bool timeout_error_printed = false;
 
 // Roll all threads forward to a safepoint and suspend them all
+// 将所有线程前滚到安全点并挂起所有线程（只有VMThread才能调用当前的函数）
 void SafepointSynchronize::begin() {
 
   Thread* myThread = Thread::current();
@@ -116,10 +117,12 @@ void SafepointSynchronize::begin() {
 
   // By getting the Threads_lock, we assure that no threads are about to start or
   // exit. It is released again in SafepointSynchronize::end().
+  // 获取Threads_lock锁，这个锁直到调用退出安全点的函数SafepointSynchronize::end()时才会释放，因此相关的Mutator线程在获取此锁时阻塞
   Threads_lock->lock();
 
   assert( _state == _not_synchronized, "trying to safepoint synchronize with wrong state");
 
+  // 获取所有的Mutator线程总数，这些线程在GC执行过程中必须要STW
   int nof_threads = Threads::number_of_threads();
 
   if (TraceSafepoint) {
@@ -134,6 +137,7 @@ void SafepointSynchronize::begin() {
   _current_jni_active_count = 0;
 
   // Set number of threads to wait for, before we initiate the callbacks
+  // 需要等待暂停的线程数量
   _waiting_to_block = nof_threads;
   TryingToBlock     = 0 ;
   int still_running = nof_threads;
@@ -187,6 +191,24 @@ void SafepointSynchronize::begin() {
   //     between states, the safepointing code will wait for the thread to
   //     block itself when it attempts transitions to a new state.
   //
+
+  // 开始将系统带到安全点的过程。Java 线程可以处于几种不同的状态，并由不同的机制停止：
+  // 1. 运行解释
+  //    更改了 interpeter 调度表，以强制它检查字节码之间的安全点条件。
+  // 2. 在本机代码中运行
+  //    从本机代码返回时，Java 线程必须检查安全点_state以查看我们是否必须阻止。 如果 VM 线程看到本机 Java 线程，则不会等待此线程阻塞。
+  //    安全点状态和 Java 线程状态的内存写入和读取顺序至关重要。 为了保证内存写入相互序列化，VM 线程发出内存屏障指令（在 MP 系统上）。
+  //    为了避免为每个进行本机调用的 Java 线程发出内存屏障的开销，每个 Java 线程在更改线程状态后都会对单个内存页执行写入操作。
+  //    VM 线程执行一系列 mprotect OS 调用，强制序列化来自所有 Java 线程的所有先前写入。这是在 os::serialize_thread_states() 调用中完成的。
+  //    事实证明，这比在每次调用本机代码时执行 membar 指令要高效得多。
+  // 3. 运行已编译的代码
+  //    编译的代码读取一个全局（安全点轮询）页面，如果我们试图到达安全点，该页面将设置为错误。
+  // 4. 锁住
+  //    在安全点操作完成之前，不允许被阻止的线程从阻止条件返回。
+  // 5. 在 VM 中或在状态之间转换
+  //    如果 Java 线程当前正在 VM 中运行或在状态之间转换，则安全点代码将等待线程在尝试转换到新状态时阻止自身。
+
+  // 将状态设置为需要同步，这样除当前VMThread线程以外的其他正在运行的线程检测到这个状态时，都会在合适的点调用block()函数暂停
   _state            = _synchronizing;
   OrderAccess::fence();
 
@@ -196,8 +218,11 @@ void SafepointSynchronize::begin() {
   }
 
   // Make interpreter safepoint aware
+  // 通知解析执行的线程进入安全点
   Interpreter::notice_safepoints();
 
+  // 让编译执行的线程进入安全点
+  // 两个参数 UseCompilerSafepoints 和 DeferPollingPageLoopCount在默认情况下的值分别为true和-1
   if (UseCompilerSafepoints && DeferPollingPageLoopCount < 0) {
     // Make polling safepoint aware
     guarantee (PageArmed == 0, "invariant") ;
@@ -222,7 +247,9 @@ void SafepointSynchronize::begin() {
   // Iterate through all threads until it have been determined how to stop them all at a safepoint
   unsigned int iterations = 0;
   int steps = 0 ;
+  // 循环判断still_running
   while(still_running > 0) {
+    // 循环检查每个线程的_safepoint_state属性，属性的类型为ThreadSafepointState*
     for (JavaThread *cur = Threads::first(); cur != NULL; cur = cur->next()) {
       assert(!cur->is_ConcurrentGC_thread(), "A concurrent GC thread is unexpectly being suspended");
       ThreadSafepointState *cur_state = cur->safepoint_state();
@@ -312,6 +339,7 @@ void SafepointSynchronize::begin() {
 
       // Instead of (ncpus > 1) consider either (still_running < (ncpus + EPSILON)) or
       // ((still_running + _waiting_to_block - TryingToBlock)) < ncpus)
+      // 以下实现是为了避免线程上下文切换，也为了尽量让其他线程有机会“走到”安全点处暂停自己
       ++steps ;
       if (ncpus > 1 && steps < SafepointSpinBeforeYield) {
         SpinPause() ;     // MP-Polite spin
@@ -335,6 +363,7 @@ void SafepointSynchronize::begin() {
   }
 
   // wait until all threads are stopped
+  // 循环判断_waiting_to_block，等待直到所有的线程停止
   while (_waiting_to_block > 0) {
     if (TraceSafepoint) tty->print_cr("Waiting for %d thread(s) to block", _waiting_to_block);
     if (!SafepointTimeout || timeout_error_printed) {
@@ -349,6 +378,7 @@ void SafepointSynchronize::begin() {
       }
     }
   }
+  // 断言所有需要暂停的线程都已经暂停
   assert(_waiting_to_block == 0, "sanity check");
 
 #ifndef PRODUCT
@@ -368,7 +398,18 @@ void SafepointSynchronize::begin() {
   _safepoint_counter ++;
 
   // Record state
+  // 逻辑执行到这里时，除VMThread线程外的所有线程已经暂停，因此将状态设置为_synchronized
   _state = _synchronized;
+
+  // 以上代码让除了执行当前函数的VMThread线程之外的所有线程都在到达安全点时暂停。
+  // 例如，调用Interpreter::notice_safepoints()函数让解析执行Java方法的线程进入安全点，
+  // 调用os::make_polling_page_unreadable()函数让内存页不可读，让编译执行Java方法的线程进入安全点等。
+
+  // 为了确保所有的线程已进入安全点，begin()函数必须保证still_running和_waiting_to_block变量的值为0。
+
+  // begin()函数还通过两个重要的锁Threads_lock和Safepoint_lock来保证线程的同步过程，由于在开始时已经获取了Threads_lock锁，
+  // 因此其他相关的线程如果需要“走到”安全点处暂停，其实就是在获取此锁时进行阻塞暂停；
+  // Safepoint_lock主要用来保证多线程操作变量时的线程安全。
 
   OrderAccess::fence();
 
@@ -402,7 +443,7 @@ void SafepointSynchronize::begin() {
 }
 
 // Wake up all threads, so they are ready to resume execution after the safepoint
-// operation has been carried out
+// operation has been carried out   // 离开安全点
 void SafepointSynchronize::end() {
 
   assert(Threads_lock->owned_by_self(), "must hold Threads_lock");
@@ -429,6 +470,7 @@ void SafepointSynchronize::end() {
   }
 #endif // ASSERT
 
+  // 让轮询页可读，清除安全点标志，否则编译执行的线程会再次进入安全点
   if (PageArmed) {
     // Make polling safepoint aware
     os::make_polling_page_readable();
@@ -436,15 +478,17 @@ void SafepointSynchronize::end() {
   }
 
   // Remove safepoint check from interpreter
+  // 清除安全点标志，否则解析执行的线程仍然会进入安全点
   Interpreter::ignore_safepoints();
 
   {
     MutexLocker mu(Safepoint_lock);
-
+    // 断言当前是已同步状态
     assert(_state == _synchronized, "must be synchronized before ending safepoint synchronization");
 
     // Set to not synchronized, so the threads will not go into the signal_thread_blocked method
     // when they get restarted.
+    // 更新_state为不需要进入安全点状态
     _state = _not_synchronized;
     OrderAccess::fence();
 
@@ -452,7 +496,7 @@ void SafepointSynchronize::end() {
        tty->print_cr("Leaving safepoint region");
     }
 
-    // Start suspended threads
+    // Start suspended threads  // 启动挂起的线程
     for(JavaThread *current = Threads::first(); current; current = current->next()) {
       // A problem occurring on Solaris is when attempting to restart threads
       // the first #cpus - 1 go well, but then the VMThread is preempted when we get
@@ -470,6 +514,7 @@ void SafepointSynchronize::end() {
       }
       ThreadSafepointState* cur_state = current->safepoint_state();
       assert(cur_state->type() != ThreadSafepointState::_running, "Thread not suspended at safepoint");
+      // 设置ThreadSafepointState::_type属性的值为_running
       cur_state->restart();
       assert(cur_state->is_running(), "safepoint state has not been reset");
     }
@@ -478,6 +523,7 @@ void SafepointSynchronize::end() {
 
     // Release threads lock, so threads can be created/destroyed again. It will also starts all threads
     // blocked in signal_thread_blocked
+    // 释放锁的同时会唤醒所有阻塞在Threads_lock锁上的线程
     Threads_lock->unlock();
 
   }
@@ -616,7 +662,7 @@ void SafepointSynchronize::block(JavaThread *thread) {
      // otherwise do nothing
      return;
   }
-
+  // 获取当前线程的状态
   JavaThreadState state = thread->thread_state();
   thread->frame_anchor()->make_walkable(thread);
 
@@ -917,6 +963,8 @@ void ThreadSafepointState::examine_state_of_thread() {
   //    we don't see the suspended state on this iteration, then
   //    we'll come around again.
   //
+  // 当线程已经被挂起时表示处于暂停状态，即到达了安全点，如果线程调用了方法suspend()，
+  // 为了防止线程在VMThread执行垃圾回收时恢复执行，挂起的线程需要在安全点上暂停
   bool is_suspended = _thread->is_ext_suspended();
   if (is_suspended) {
     roll_forward(_at_safepoint);
@@ -926,12 +974,13 @@ void ThreadSafepointState::examine_state_of_thread() {
   // Some JavaThread states have an initial safepoint state of
   // running, but are actually at a safepoint. We will happily
   // agree and update the safepoint state here.
+  // 当线程本身已经处于阻塞状态或线程在执行native代码时表示到达了安全点
   if (SafepointSynchronize::safepoint_safe(_thread, state)) {
     SafepointSynchronize::check_for_lazy_critical_native(_thread, state);
     roll_forward(_at_safepoint);
     return;
   }
-
+  // 当线程在虚拟机中运行时，需要等待进入安全点
   if (state == _thread_in_vm) {
     roll_forward(_call_back);
     return;
@@ -942,16 +991,19 @@ void ThreadSafepointState::examine_state_of_thread() {
   // Safepoint polling in compiled code causes the Java threads to do the same.
   // Note: new threads may require a malloc so they must be allowed to finish
 
+  // 线程还处在运行状态，必须在SafepointSynchronize::begin()函数的while循环中等待
   assert(is_running(), "examine_state_of_thread on non-running thread");
   return;
 }
 
 // Returns true is thread could not be rolled forward at present position.
 void ThreadSafepointState::roll_forward(suspend_type type) {
+  // VMThread线程会更新相关线程的_type变量的值
   _type = type;
 
   switch(_type) {
     case _at_safepoint:
+      // 调用以下函数将_waiting_to_block减1
       SafepointSynchronize::signal_thread_at_safepoint();
       DEBUG_ONLY(_thread->set_visited_for_critical_count(true));
       if (_thread->in_critical()) {
@@ -961,6 +1013,7 @@ void ThreadSafepointState::roll_forward(suspend_type type) {
       break;
 
     case _call_back:
+      // 在_call_back状态下，_waiting_to_block不会减1，线程会在下一个处理_waiting_to_block的循环中继续进行处理。
       set_has_called_back(false);
       break;
 

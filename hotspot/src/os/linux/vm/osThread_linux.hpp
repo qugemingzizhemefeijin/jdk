@@ -111,7 +111,7 @@ public:
   address alt_sig_stack(void)             { return _alt_sig_stack; }
 
 private:
-  Monitor* _startThread_lock;     // sync parent and child in thread creation
+  Monitor* _startThread_lock;     // sync parent and child in thread creation  同步父子线程的状态
 
 public:
 

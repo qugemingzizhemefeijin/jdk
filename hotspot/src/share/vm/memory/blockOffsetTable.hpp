@@ -109,21 +109,25 @@ class BlockOffsetSharedArray: public CHeapObj<mtGC> {
   enum SomePrivateConstants {
     LogN = 9,
     LogN_words = LogN - LogHeapWordSize,
-    N_bytes = 1 << LogN,
-    N_words = 1 << LogN_words
+    N_bytes = 1 << LogN,                        // 512字节
+    N_words = 1 << LogN_words                   // 64字，也就是512字节
   };
 
   bool _init_to_zero;
 
   // The reserved region covered by the shared array.
+  // 与当前偏移表对应的所有卡表页组成的区域，是一个连续的区域
   MemRegion _reserved;
 
   // End of the current committed region.
+  // 已经提交的内存区域的尾地址
   HeapWord* _end;
 
   // Array for keeping offsets for retrieving object start fast given an
   // address.
+  // _offset_array需要的虚拟空间
   VirtualSpace _vs;
+  // 字节数组，用来保存回退偏移的相关信息
   u_char* _offset_array;          // byte array keeping backwards offsets
 
  protected:

@@ -55,12 +55,30 @@ class nmethod;
 //
 // Implements roll-forward to safepoint (safepoint synchronization)
 //
+// 安全点会让Mutator线程运行到一些特殊位置后主动暂停，这样就可以让GC线程进行垃圾回收或者导出堆栈等操作。
+// 当有垃圾回收任务时，通常会产生一个VM_Operation任务并将其放到VMThread队列中，VMThread会循环处理这个队列中的任务，
+// 其中在处理任务时需要有一个进入安全点的操作，任务完成后还要退出安全点。
+
+// 当所有线程都进入安全点后，VMThread才能继续执行后面的代码。
+// 进入安全点时Java线程可能存在几种不同的状态，这里需要处理所有可能存在的情况。
+// 1 处于解释执行字节码的状态，解释器在通过字节码派发表（Dispatch Table）获取下一条字节码的时候会主动检查安全点的状态。
+// 2 处于执行native代码的状态，也就是执行JNI。此时VMThread不会等待线程进入安全点。
+//   执行JNI退出后线程需要主动检查安全点状态，如果此时安全点位置被标记了，那么就不能继续执行，需要等待安全点位置被清除后才能继续执行。
+// 3 处于编译代码执行状态，编译器会在合适的位置（例如循环、方法调用等）插入读取全局Safepoint Polling内存页的指令，
+//   如果此时安全点位置被标记了，那么Safepoint Polling内存页会变成不可读，此时线程会因为读取了不可读的内存页而陷入内核态，
+//   事先注册好的信号处理程序就会处理这个信号并让线程进入安全点。
+// 4 线程本身处于blocked状态，例如线程在等待锁，那么线程的阻塞状态将不会结束直到安全点标志被清除。
+// 5 当线程处于以上(1)至(3)3种状态切换阶段，切换前会先检查安全点的状态，如果此时要求进入安全点，那么切换将不被允许，需要等待，直到安全点状态被清除。
+//
 class SafepointSynchronize : AllStatic {
  public:
   enum SynchronizeState {
+      // 相关线程不需要进入安全点
       _not_synchronized = 0,                   // Threads not synchronized at a safepoint
                                                // Keep this value 0. See the coment in do_call_back()
+      // 相关线程需要进入安全点
       _synchronizing    = 1,                   // Synchronizing in progress
+      // 所有的线程都已经进入安全点，只有VMThread线程在运行
       _synchronized     = 2                    // All Java threads are stopped at a safepoint. Only VM thread is running
   };
 
@@ -91,7 +109,9 @@ class SafepointSynchronize : AllStatic {
   } SafepointStats;
 
  private:
+  // 线程同步的状态
   static volatile SynchronizeState _state;     // Threads might read this flag directly, without acquireing the Threads_lock
+  // VMThread线程要等待阻塞的用户线程数，只有这些线程全部阻塞时，VMThread线程才能在安全点下执行垃圾回收操作。
   static volatile int _waiting_to_block;       // number of threads we are waiting for to block
   static int _current_jni_active_count;        // Counts the number of active critical natives during the safepoint
 
@@ -135,7 +155,9 @@ public:
 
   // Roll all threads forward to safepoint. Must be called by the
   // VMThread or CMS_thread.
+  // 进入安全点（将所有线程前滚到安全点。必须由 VMThread 或 CMS_thread 调用。）
   static void begin();
+  // 退出安全点（再次启动所有挂起的线程...）
   static void end();                    // Start all suspended threads again...
 
   static bool safepoint_safe(JavaThread *thread, JavaThreadState state);
@@ -196,8 +218,11 @@ class ThreadSafepointState: public CHeapObj<mtInternal> {
   // to a safepoint.  After SafepointSynchronize::end(), they are reset to
   // _running.
   enum suspend_type {
+    // 线程不在安全点上
     _running                =  0, // Thread state not yet determined (i.e., not at a safepoint yet)
+    // 线程已经在安全点上
     _at_safepoint           =  1, // Thread at a safepoint (f.ex., when blocked on a lock)
+    // 线程会继续执行，不过在必要时会执行回调
     _call_back              =  2  // Keep executing and wait for callback (if thread is in interpreted or vm)
   };
  private:
@@ -214,6 +239,7 @@ class ThreadSafepointState: public CHeapObj<mtInternal> {
   ThreadSafepointState(JavaThread *thread);
 
   // examine/roll-forward/restart
+  // 状态检查
   void examine_state_of_thread();
   void roll_forward(suspend_type type);
   void restart();

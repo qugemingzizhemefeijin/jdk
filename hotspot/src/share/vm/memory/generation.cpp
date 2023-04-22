@@ -396,9 +396,11 @@ CardGeneration::CardGeneration(ReservedSpace rs, size_t initial_byte_size,
   size_t reserved_byte_size = rs.size();
   assert((uintptr_t(start) & 3) == 0, "bad alignment");
   assert((reserved_byte_size & 3) == 0, "bad alignment");
+  // 创建偏移表
   MemRegion reserved_mr(start, heap_word_size(reserved_byte_size));
   _bts = new BlockOffsetSharedArray(reserved_mr,
                                     heap_word_size(initial_byte_size));
+  // 创建卡表
   MemRegion committed_mr(start, heap_word_size(initial_byte_size));
   _rs->resize_covered_region(committed_mr);
   if (_bts == NULL)

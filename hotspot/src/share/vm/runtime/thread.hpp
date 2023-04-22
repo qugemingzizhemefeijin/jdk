@@ -483,6 +483,11 @@ class Thread: public ThreadShadow {
 
   TRACE_DATA* trace_data()              { return &_trace_data; }
 
+  // 当HotSpot VM提交任务时，将返回 _vm_operation_started_count加1后的结果作为ticket，当任务执行完成后，
+  // VMThread会调用increment_vm_operation_completed_count()函数对_vm_operation_completed_count加1。
+  // 由于_vm_operation_started_count与_vm_operation_completed_count初始时都为0，
+  // 所以当_vm_operation_completed_count不小于_vm_operation_started_count时表示任务执行完成，可以不用等待了。
+
   // VM operation support
   int vm_operation_ticket()                      { return ++_vm_operation_started_count; }
   int vm_operation_completed_count()             { return _vm_operation_completed_count; }

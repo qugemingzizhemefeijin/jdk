@@ -1079,6 +1079,7 @@ void Monitor::jvm_raw_unlock() {
   IUnlock(false) ;
 }
 
+//
 bool Monitor::wait(bool no_safepoint_check, long timeout, bool as_suspend_equivalent) {
   Thread * const Self = Thread::current() ;
   assert (_owner == Self, "invariant") ;
@@ -1119,7 +1120,7 @@ bool Monitor::wait(bool no_safepoint_check, long timeout, bool as_suspend_equiva
       // cleared by handle_special_suspend_equivalent_condition() or
       // java_suspend_self()
     }
-
+    // 让线程处于等待状态
     wait_status = IWait (Self, timeout) ;
 
     // were we externally suspended while we were waiting?

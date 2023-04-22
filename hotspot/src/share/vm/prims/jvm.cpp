@@ -514,6 +514,15 @@ JVM_ENTRY(jint, JVM_IHashCode(JNIEnv* env, jobject handle))
   return handle == NULL ? 0 : ObjectSynchronizer::FastHashCode (THREAD, JNIHandles::resolve_non_null(handle)) ;
 JVM_END
 
+// JVM_ENTRY 宏展开
+
+// extern "C" {
+//  void JVM_MonitorWait(JNIEnv* env, jobject handle, jlong ms) {
+//  JavaThread* thread=JavaThread::thread_from_jni_environment(env);
+//  ThreadInVMfromNative __tiv(thread);
+//  HandleMarkCleaner __hm(thread);
+//  Thread* __the_thread__ = thread;
+//  ...
 
 JVM_ENTRY(void, JVM_MonitorWait(JNIEnv* env, jobject handle, jlong ms))
   JVMWrapper("JVM_MonitorWait");
@@ -522,9 +531,14 @@ JVM_ENTRY(void, JVM_MonitorWait(JNIEnv* env, jobject handle, jlong ms))
   if (JvmtiExport::should_post_monitor_wait()) {
     JvmtiExport::post_monitor_wait((JavaThread *)THREAD, (oop)obj(), ms);
   }
+
+  // 在调用ObjectSynchronizer::wait()函数前后都会调用ThreadInVMfromNative类的构造函数和析构函数，对线程阻塞和状态转换下的安全点进行处理。
+
   ObjectSynchronizer::wait(obj, ms, CHECK);
 JVM_END
 
+// }
+// JVM_END 宏展开
 
 JVM_ENTRY(void, JVM_MonitorNotify(JNIEnv* env, jobject handle))
   JVMWrapper("JVM_MonitorNotify");

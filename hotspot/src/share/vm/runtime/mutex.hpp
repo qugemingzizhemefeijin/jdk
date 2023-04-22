@@ -182,6 +182,7 @@ class Monitor : public CHeapObj<mtInternal> {
   // Defaults are to make safepoint checks, wait time is forever (i.e.,
   // zero), and not a suspend-equivalent condition. Returns true if wait
   // times out; otherwise returns false.
+  // 例如：当某个用户线程调用VMThread::execute()函数将YGC的任务放到队列中时，会执行此方法等待
   bool wait(bool no_safepoint_check = !_no_safepoint_check_flag,
             long timeout = 0,
             bool as_suspend_equivalent = !_as_suspend_equivalent_flag);

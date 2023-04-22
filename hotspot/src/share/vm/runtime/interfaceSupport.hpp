@@ -115,7 +115,12 @@ class InterfaceSupport: AllStatic {
 
 
 // Basic class for all thread transition classes.
-
+// children class:
+// ThreadInVMfromNative                     // 对线程阻塞和状态转换下的安全点进行处理
+// ThreadInVMfromJavaNoAsyncExcption
+// ThreadInVMfromJava
+// ThreadToNativeFromVM
+// ThreadToNativeFromVM
 class ThreadStateTransition : public StackObj {
  protected:
   JavaThread* _thread;
@@ -132,7 +137,20 @@ class ThreadStateTransition : public StackObj {
     assert(from != _thread_in_native, "use transition_from_native");
     assert((from & 1) == 0 && (to & 1) == 0, "odd numbers are transitions states");
     assert(thread->thread_state() == from, "coming from wrong thread state");
+
+    // 当from的状态为thread_in_vm，to的状态为_thread_blocked时，在执行Safepoint-Synchronize::block()函数之前会将状态设置为
+    // _thread_in_vm_trans，执行完成后会将状态设置为_thread_blocked。
+    // 执行后设置为_thread_blocked状态是因为接下来要调用IWait()函数进行暂停等待。
+
+    // 假设VMThread线程获取YGC任务并调用了SafepointSynchronize::begin()函数将_state状态设置为_synchronizing，
+    // 那么transition()函数调用block()后会阻塞用户线程；如果_state状态没有来得及设置为_synchronizing，
+    // 那么transition()函数会调用IWait()函数阻塞用户线程，此时的线程状态为_thread_blocked；
+    // 如果调用IWait()函数的线程在执行GC的过程中被唤醒，唤醒后会调用ThreadBlockInVM的析构函数，
+    // 此时会再次调用transition_and_fence()函数尝试让线程恢复运行，如果此时的线程状态_state不等于_not_synchronized，
+    // 那么仍然会调用block()函数进入阻塞状态，直到GC任务完成后才会唤醒。
+
     // Change to transition state (assumes total store ordering!  -Urs)
+    // 更新过渡的状态，大部分的线程状态都有对应的过渡状态
     thread->set_thread_state((JavaThreadState)(from + 1));
 
     // Make sure new state is seen by VM thread
@@ -146,9 +164,12 @@ class ThreadStateTransition : public StackObj {
       }
     }
 
+    // 在do_call_back()函数中判断_state是否不等于_not_synchronized，如果不等于就返回true，然后进行阻塞
     if (SafepointSynchronize::do_call_back()) {
+      // 调用block()函数进入安全点
       SafepointSynchronize::block(thread);
     }
+    // 更新线程的状态为目的状态
     thread->set_thread_state(to);
 
     CHECK_UNHANDLED_OOPS_ONLY(thread->clear_unhandled_oops();)
@@ -305,9 +326,11 @@ class ThreadBlockInVM : public ThreadStateTransition {
   : ThreadStateTransition(thread) {
     // Once we are blocked vm expects stack to be walkable
     thread->frame_anchor()->make_walkable(thread);
+    // 将线程状态由_thread_in_vm转换为_thread_blocked
     trans_and_fence(_thread_in_vm, _thread_blocked);
   }
   ~ThreadBlockInVM() {
+    // 将线程状态由_thread_blocked还原为_thread_in_vm
     trans_and_fence(_thread_blocked, _thread_in_vm);
     // We don't need to clear_walkable because it will happen automagically when we return to java
   }

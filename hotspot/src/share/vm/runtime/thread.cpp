@@ -3459,16 +3459,21 @@ jint Threads::create_vm(JavaVMInitArgs* args, bool* canTryAgain) {
   // Fully start NMT
   MemTracker::start();
 
-  // Create the VMThread
+  // Create the VMThread  //创建 VMThread 线程
   { TraceTime timer("Start VMThread", TraceStartupTime);
+    // 创建VMThread和VMOperationQueue实例
     VMThread::create();
+    // 获取创建出的VMThread实例
     Thread* vmthread = VMThread::vm_thread();
 
+    // 线程类型为ThreadType枚举 vm_thread 类型
+    // hotspot/src/share/vm/runtime/os.hpp line 408
     if (!os::create_thread(vmthread, os::vm_thread))
       vm_exit_during_initialization("Cannot create VM thread. Out of system resources.");
 
     // Wait for the VM thread to become ready, and VMThread::run to initialize
     // Monitors can have spurious returns, must always check another state flag
+    // 当前线程等待VMThead线程就绪后才会执行其他逻辑
     {
       MutexLocker ml(Notify_lock);
       os::start_thread(vmthread);

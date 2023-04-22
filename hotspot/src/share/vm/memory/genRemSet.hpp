@@ -49,7 +49,8 @@ class KlassRemSet {
 class GenRemSet: public CHeapObj<mtGC> {
   friend class Generation;
 
-  BarrierSet* _bs;
+  // 当对一个对象引用进行写操作（对象引用改变），或者对象由年轻代晋升到老年代时，这个屏障可能会标记卡表中的某一项为dirty。
+  BarrierSet* _bs;                      // 屏障
   KlassRemSet _klass_rem_set;
 
 public:
