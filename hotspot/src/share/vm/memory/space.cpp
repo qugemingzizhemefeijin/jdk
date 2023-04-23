@@ -300,7 +300,9 @@ void ContiguousSpace::initialize(MemRegion mr,
 }
 
 void ContiguousSpace::clear(bool mangle_space) {
+  // 将Space::_bottom的值赋值给ContiguousSpace::_top
   set_top(bottom());
+  // 将ContiguousSpace::_top的值赋值给Space::_saved_mark_word
   set_saved_mark();
   CompactibleSpace::clear(mangle_space);
 }
@@ -376,7 +378,7 @@ void CompactibleSpace::initialize(MemRegion mr,
 
 void CompactibleSpace::clear(bool mangle_space) {
   Space::clear(mangle_space);
-  _compaction_top = bottom();
+  _compaction_top = bottom();   // 获取Space::_bottom属性的值并赋值
 }
 
 HeapWord* CompactibleSpace::forward(oop q, size_t size,

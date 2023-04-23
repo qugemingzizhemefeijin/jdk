@@ -286,6 +286,9 @@ void TenuredGeneration::retire_alloc_buffers_before_full_gc() {}
 void TenuredGeneration::verify_alloc_buffers_clean() {}
 #endif // INCLUDE_ALL_GCS
 
+// 根据之前的GC数据获取平均的晋升空间，优先判断可用空间是否大于等于这个平均的晋升空间，其次判断是否大于等于最大的晋升空间max_promotion_in_bytes，
+// 只要有一个条件为真，函数就会返回true，表示这是一次安全的GC。对于满足可用空间大于等于平均晋升空间这个条件来说，函数返回true后，
+// YGC在执行过程中可能会遇到分配担保失败的情况，因为实际的晋升空间如果大于平均晋升空间时就会失败，此时就需要执行FGC操作了。
 bool TenuredGeneration::promotion_attempt_is_safe(size_t max_promotion_in_bytes) const {
   size_t available = max_contiguous_available();
   size_t av_promo  = (size_t)gc_stats()->avg_promoted()->padded_average();

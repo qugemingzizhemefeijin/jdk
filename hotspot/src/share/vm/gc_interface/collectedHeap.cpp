@@ -506,6 +506,7 @@ void CollectedHeap::ensure_parsability(bool retire_tlabs) {
   assert(!use_tlab || Threads::first() != NULL,
          "Attempt to fill tlabs before main thread has been added"
          " to threads list is doomed to failure!");
+  // 将每个线程中的最后一个TLAB中的剩余空间填充对象或数组（通常会将TLAB末尾尚未分配给Java对象的空间填充一个整数类型的数组）
   for (JavaThread *thread = Threads::first(); thread; thread = thread->next()) {
      if (use_tlab) thread->tlab().make_parsable(retire_tlabs);
 #ifdef COMPILER2

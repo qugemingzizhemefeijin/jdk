@@ -363,6 +363,8 @@ class Generation: public CHeapObj<mtGC> {
 
   // This generation will collect all younger generations
   // during a full collection.
+  // 对于子类DefNewGeneration来说，没有重写full_collects_younger_generations()函数，因此会调用Generation类的默认实现，
+  // 默认直接返回false，因为此年轻代没有比自己更年轻的代需要回收。
   virtual bool full_collects_younger_generations() const { return false; }
 
   // This generation does in-place marking, meaning that mark words
@@ -382,9 +384,16 @@ class Generation: public CHeapObj<mtGC> {
   // will be full if the flag is set).
   // Thus, older generations which collect younger generations should
   // test this flag and collect if it is set.
+  // 在执行YGC时，full = false
   virtual bool should_collect(bool   full,
                               size_t word_size,
                               bool   is_tlab) {
+    // 当full=false时，会继续调用should_allocate()函数进行判断。
+    // 主要判断3个条件，这3个条件必须同时满足，函数才会返回true， 这3个条件如下：
+    // - 申请的内存大小未溢出；
+    // - 申请的内存大小不为0；
+    // - 支持TLAB内存分配，如果不支持TLAB内存分配，那么申请的内存大小没有超过本内存代的限制阈值。
+    // 当触发的是YGC时，调用DefNewGeneration类的should_allocate()函数通常会返回true。
     return (full || should_allocate(word_size, is_tlab));
   }
 

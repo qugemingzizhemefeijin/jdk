@@ -119,6 +119,7 @@ void JNIHandles::destroy_weak_global(jobject handle) {
 
 void JNIHandles::oops_do(OopClosure* f) {
   f->do_oop(&_deleted_handle);
+  // _global_handles是JNIHandleBlock*类型的变量
   _global_handles->oops_do(f);
 }
 
@@ -353,20 +354,24 @@ void JNIHandleBlock::oops_do(OopClosure* f) {
   // Iterate over chain of blocks, followed by chains linked through the
   // pop frame links.
   while (current_chain != NULL) {
+    // 遍历所有的JNIHandleBlock
     for (JNIHandleBlock* current = current_chain; current != NULL;
          current = current->_next) {
       assert(current == current_chain || current->pop_frame_link() == NULL,
         "only blocks first in chain should have pop frame link set");
+      // 遍历每个JNIHandleBlock中保存的通过句柄引用的oop
       for (int index = 0; index < current->_top; index++) {
         oop* root = &(current->_handles)[index];
         oop value = *root;
         // traverse heap pointers only, not deleted handles or free list
         // pointers
+        // 要判断value不为NULL并且oop是在堆中分配的内存
         if (value != NULL && Universe::heap()->is_in_reserved(value)) {
           f->do_oop(root);
         }
       }
       // the next handle block is valid only if current block is full
+      // 如果_top小于block_size_in_oops，则说明当前是最后一个JNIHandleBlock块
       if (current->_top < block_size_in_oops) {
         break;
       }

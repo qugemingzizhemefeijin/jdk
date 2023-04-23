@@ -106,14 +106,27 @@ inline void ScanClosure::do_oop_nv(narrowOop* p) { ScanClosure::do_oop_work(p); 
 // NOTE! Any changes made here should also be made
 // in ScanClosure::do_oop_work()
 template <class T> inline void FastScanClosure::do_oop_work(T* p) {
+  // 调用函数load_heap_oop()执行*p操作，获取T类型的值，T为oopDesc*类型
   T heap_oop = oopDesc::load_heap_oop(p);
   // Should we copy the obj?
   if (!oopDesc::is_null(heap_oop)) {
     oop obj = oopDesc::decode_heap_oop_not_null(heap_oop);
     if ((HeapWord*)obj < _boundary) {
       assert(!_g->to()->is_in_reserved(obj), "Scanning field twice?");
+
+      // obj->forwardee()
+      // 检查markOop中的GC标记，即活跃对象的标记，如果已经设置，说明对象已经移动到To Survivor空间或者老年代空间，只需要更新引用即可。
+
+      // _g->copy_to_survivor_space(obj)
+      // 当前对象没有GC标记，并且遍历根执行到以下代码时，说明当前对象活跃，需要复制活跃对象到To Survivor空间或者老年代空间，
+      // 然后在旧的对象上设置GC标记和转发指针，更新引用到最新的对象。
+
+      // 当对象的地址小于年轻代的结束地址时，可能会执行对象的复制或设置转发指针的操作。
+      // 在标记YGC根直接引用的对象时，不会执行设置转发指针和标记GC的操作，因为遍历到的所有根对象都没有设置转发指针和GC活跃标记。
+
       oop new_obj = obj->is_forwarded() ? obj->forwardee()
                                         : _g->copy_to_survivor_space(obj);
+      // 让p指向new_obj，调用函数执行的操作为 *p = new_obj
       oopDesc::encode_store_heap_oop_not_null(p, new_obj);
       if (is_scanning_a_klass()) {
         do_klass_barrier();

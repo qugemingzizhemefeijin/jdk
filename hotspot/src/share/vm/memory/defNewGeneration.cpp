@@ -125,6 +125,13 @@ FastScanClosure::FastScanClosure(DefNewGeneration* g, bool gc_barrier) :
   _boundary = _g->reserved().end();
 }
 
+// 跟扫描的时候的instanceOop实例的处理逻辑
+// openjdk/hotspot/src/share/vm/memory/defNewGeneration.cpp
+// void FastScanClosure::do_oop(oop* p) {
+//  // hotspot/src/share/vm/memory/genOopClosures.inline.hpp
+//  // template <class T> inline void FastScanClosure::do_oop_work(T* p) {...}
+//  FastScanClosure::do_oop_work(p);
+// }
 void FastScanClosure::do_oop(oop* p)       { FastScanClosure::do_oop_work(p); }
 void FastScanClosure::do_oop(narrowOop* p) { FastScanClosure::do_oop_work(p); }
 
@@ -324,9 +331,12 @@ void DefNewGeneration::compute_space_boundaries(uintx minimum_eden_size,
 }
 
 void DefNewGeneration::swap_spaces() {
+  // 简单交换From Survivor和To Survivor空间的首地址即可
   ContiguousSpace* s = from();
   _from_space        = to();
   _to_space          = s;
+  // Eden空间的下一个压缩空间为From Survivor，FGC在压缩年轻代时通常会压缩这两个空间。
+  // 如果YGC晋升失败，则From Survivor的下一个压缩空间是To Survivor，因此FGC会压缩整理这三个空间
   eden()->set_next_compaction_space(from());
   // The to-space is normally empty before a compaction so need
   // not be considered.  The exception is during promotion
@@ -467,6 +477,7 @@ size_t DefNewGeneration::capacity() const {
 
 
 size_t DefNewGeneration::used() const {
+  // 将Eden区和From Survivor区已使用的内存空间加起来即为年轻代总的使用空间。
   return eden()->used()
        + from()->used();      // to() is only used during scavenge
 }
@@ -555,6 +566,13 @@ HeapWord* DefNewGeneration::expand_and_allocate(size_t size,
   return allocate(size, is_tlab);
 }
 
+// -XX:TargetSurvivorRatio选项表示To Survivor空间占用百分比。调用adjust_desired_tenuring_threshold()函数是在YGC执行成功后，
+// 所以此次年轻代垃圾回收后所有的存活对象都被移动到了To Survivor空间内。如果To Survivor空间内的活跃对象的占比较高，
+// 会使下一次YGC时To Survivor空间轻易地被活跃对象占满，导致各种年龄代的对象晋升到老年代。
+// 为了解决这个问题，每次成功执行YGC后需要动态调整年龄阈值，这个年龄阈值既可以保证To Survivor空间占比不过高，
+// 也能保证晋升到老年代的对象都是达到了这个年龄阈值的对象。
+
+// 如果在Survivor区中存活的对象比较多，那么晋升阈值可能会变小，当下一次回收时，大于晋升阈值的对象都会晋升到老年代。
 void DefNewGeneration::adjust_desired_tenuring_threshold() {
   // Set the desired survivor size to half the real survivor space
   _tenuring_threshold =
@@ -565,6 +583,7 @@ void DefNewGeneration::collect(bool   full,
                                bool   clear_all_soft_refs,
                                size_t size,
                                bool   is_tlab) {
+  // 确保当前是一次FGC，或者需要分配的内存size大于0，否则不需要执行一次GC操作
   assert(full || size > 0, "otherwise we don't want to collect");
 
   GenCollectedHeap* gch = GenCollectedHeap::heap();
@@ -573,22 +592,26 @@ void DefNewGeneration::collect(bool   full,
   DefNewTracer gc_tracer;
   gc_tracer.report_gc_start(gch->gc_cause(), _gc_timer->gc_start());
 
+  // 使用-XX:+UseSerialGC命令后， DefNewGeneration::_next_gen为TenuredGeneration
   _next_gen = gch->next_gen(this);
 
   // If the next generation is too full to accommodate promotion
   // from this generation, pass on collection; let the next generation
   // do it.
   // 返回true: to()空间空闲 && 某个代的剩余空间能够容下本次垃圾回收需要的空间
+  // 如果新生代全是需要晋升的存活对象，老年代可能容不下这些对象，此时设置增量垃圾回收失败，直接返回，后续会执行FGC。
   if (!collection_attempt_is_safe()) {
     if (Verbose && PrintGCDetails) {
       gclog_or_tty->print(" :: Collection attempt not safe :: ");
     }
-    // 告诉内存堆管理器不要再考虑增量式GC(Minor Gc),因为一定会失败
+    // 告诉内存堆管理器不要再考虑增量式GC(Minor Gc),因为一定会失败。
+    // 设置_incremental_collection_failed为true，即放弃当前YGC
     gch->set_incremental_collection_failed(); // Slight lie: we did not even attempt one
     return;
   }
+  // 在执行YGC时使用的是复制算法，因此要保存To Survivor区为空
   assert(to()->is_empty(), "Else not collection_attempt_is_safe");
-
+  // 主要设置DefNewGeneration::_promotion_failed变量的值为false
   init_assuming_no_promotion_failure();
 
   GCTraceTime t1(GCCauseString("GC", gch->gc_cause()), PrintGC && !PrintGCDetails, true, NULL);
@@ -600,9 +623,10 @@ void DefNewGeneration::collect(bool   full,
   SpecializationStats::clear();
 
   // These can be shared for all code paths
-  IsAliveClosure is_alive(this);
-  ScanWeakRefClosure scan_weak_ref(this);
+  IsAliveClosure is_alive(this);            // 该闭包封装了判断对象是否存活的逻辑
+  ScanWeakRefClosure scan_weak_ref(this);   // 该闭包封装了扫描弱引用的逻辑
 
+  // 清空ageTable数据和To Survivor空间，ageTable会辅助判断对象晋升的条件，而保证To Survivor空间为空是执行复制算法的必备条件
   age_table()->clear();
   to()->clear(SpaceDecorator::Mangle);
 
@@ -614,7 +638,7 @@ void DefNewGeneration::collect(bool   full,
   // Not very pretty.
   CollectorPolicy* cp = gch->collector_policy();
 
-  FastScanClosure fsc_with_no_gc_barrier(this, false);
+  FastScanClosure fsc_with_no_gc_barrier(this, false);  // 此闭包封装了存活对象的标识和复制逻辑
   FastScanClosure fsc_with_gc_barrier(this, true);
 
   KlassScanClosure klass_scan_closure(&fsc_with_no_gc_barrier,
@@ -631,11 +655,12 @@ void DefNewGeneration::collect(bool   full,
   int so = SharedHeap::SO_AllClasses | SharedHeap::SO_Strings | SharedHeap::SO_CodeCache;
 
   /*
-   * 调用GenCollectedHeap类的gen_process_strong_roots()函数找出所有的根引用标记并复制，
-   * 接着调用DefNewGeneration::FastEvacuateFollowersClosure::do_void()函数从已经标记的直接由根引用的对象出发，使用广度遍历标记所有对象并复制，这样就完成了YGC任务。
+   * 1.调用GenCollectedHeap类的gen_process_strong_roots()函数找出所有的根引用标记并复制，
+   * 2.接着调用DefNewGeneration::FastEvacuateFollowersClosure::do_void()函数从已经标记的直接由根引用的对象出发，
+   *   使用广度遍历标记所有对象并复制，这样就完成了YGC任务。
   */
   // 标记根集对象并复制到To Survivor空间中
-  gch->gen_process_strong_roots(_level,                                     // 执行YGC和FGC时， 此值都为1
+  gch->gen_process_strong_roots(_level,                                     // 执行YGC和FGC时，此值都为1
                                 true,  // Process younger gens, if any,
                                        // as strong roots.
                                 true,  // activate StrongRootsScope
@@ -646,7 +671,7 @@ void DefNewGeneration::collect(bool   full,
                                 &fsc_with_gc_barrier,                       // 类型为FastScanClosure
                                 &klass_scan_closure);                       // 类型为KlassScanClosure
 
-  // "evacuate followers". 递归标记并复制对象
+  // "evacuate followers". 递归处理根集对象的引用对象，然后复制活跃对象到新的存储空间
   evacuate_followers.do_void();
 
   FastKeepAliveClosure keep_alive(this, &scan_weak_ref); // 处理发现的引用类型对象
@@ -658,8 +683,15 @@ void DefNewGeneration::collect(bool   full,
                                     NULL, _gc_timer);
   gc_tracer.report_gc_reference_stats(stats);
 
+  // 在YGC回收的过程中，最终执行成功与否通过_promotion_failed变量的值来判断。
+  // 如果成功，则清空Eden和From Survivor区，然后交换From Survivor和To Survivor的角色即可；
+  // 如果失败，则需要触发FGC，如果不触发FGC将Eden、 From Survivor和To Survivor的活跃对象压缩在Eden和From Survivor空间，
+  // 那么后续就不能发生YGC，因为复制算法找不到一个可用的空闲空间。
+
+  // 当晋升成功
   if (!_promotion_failed) {
     // Swap the survivor spaces.
+    // 清空Eden和From Survivor空间，因为这两个空间中剩余的没有被移动的对象都是死亡对象
     eden()->clear(SpaceDecorator::Mangle);
     from()->clear(SpaceDecorator::Mangle);
     if (ZapUnusedHeapArea) {
@@ -672,14 +704,17 @@ void DefNewGeneration::collect(bool   full,
       // other spaces.
       to()->mangle_unused_area();
     }
+    // 交换From Survivor和To Survivor的角色，这样已经清空的From Survivor空间会变为下一次回收的To Survivor空间
     swap_spaces();
 
     assert(to()->is_empty(), "to space should be empty now");
 
+    // 动态计算晋升阈值
     adjust_desired_tenuring_threshold();
 
     // A successful scavenge should restart the GC time limit count which is
     // for full GC's.
+    // 当YGC成功后，重新计算GC超时的时间计数
     AdaptiveSizePolicy* size_policy = gch->gen_policy()->size_policy();
     size_policy->reset_gc_overhead_limit_count();
     if (PrintGC && !PrintGCDetails) {
@@ -687,9 +722,11 @@ void DefNewGeneration::collect(bool   full,
     }
     assert(!gch->incremental_collection_failed(), "Should be clear");
   } else {
+    // 若发生了晋升失败，即老年代没有足够的内存空间用以存放新生代所晋升的所有对象
     assert(_promo_failure_scan_stack.is_empty(), "post condition");
     _promo_failure_scan_stack.clear(true); // Clear cached segments.
 
+    // 恢复晋升失败对象的markOop，因为晋升失败的对象的转发地址已经指向自己
     remove_forwarding_pointers();
     if (PrintGCDetails) {
       gclog_or_tty->print(" (promotion failed) ");
@@ -699,8 +736,16 @@ void DefNewGeneration::collect(bool   full,
     // case there can be live objects in to-space
     // as a result of a partial evacuation of eden
     // and from-space.
+    // 当晋升失败时，虽然会交换From Survivor和To Survivor的角色，但是并不会清空Eden和From Survivor空间，
+    // 而会恢复晋升失败部分的对象头（加上To Survivor空间中的对象就是全部活跃对象了），这样在随后触发的FGC中能够对From Survivor
+    // 和To Survivor空间进行压缩处理
     swap_spaces();   // For uniformity wrt ParNewGeneration.
+    // 设置From Survivor的下一个压缩空间为To Survivor，由于晋升失败会触发FGC。
+    // 所以FGC会将Eden、From Survivor和To Survivor空间的活跃对象压缩在Eden和From Survivor空间
     from()->set_next_compaction_space(to());
+    // 设置堆的YGC失败标记，并通知老年代晋升失败，DefNewGeneration::collect()函数当collection_attempt_is_safe()函数返回true时
+    // 也有可能晋升失败，就是因为此函数的判断条件中含有可用空间是否大于等于平均的晋升空间在实际执行YGC时，
+    // 晋升量大于平均晋升量并且可用空间小于这个晋升空间时，会导致YGC失败。
     gch->set_incremental_collection_failed();
 
     // Inform the next generation that a promotion failure occurred.
@@ -737,8 +782,9 @@ public:
 };
 
 void DefNewGeneration::init_assuming_no_promotion_failure() {
-  _promotion_failed = false;
+  _promotion_failed = false; // 如果在YGC过程中失败，那么这个变量的值会设置为true
   _promotion_failed_info.reset();
+  // 将CompactibleSpace::_next_compaction_space属性的值设置为NULL
   from()->set_next_compaction_space(NULL);
 }
 
@@ -779,18 +825,24 @@ void DefNewGeneration::handle_promotion_failure(oop old) {
   }
   _promotion_failed = true;
   _promotion_failed_info.register_copy_failure(old->size());
+  // 保存原对象的对象头信息，然后在对象头中设置转发指针指向自己
   preserve_mark_if_necessary(old, old->mark());
   // forward to self
   old->forward_to(old);
 
+  // 将晋升失败的对象存储到_promo_failure_scan_stack栈中。
+  // 这样会继续调用drain_promo_failure_scan_stack()函数处理晋升失败对象引用的其他对象。
   _promo_failure_scan_stack.push(old);
 
   if (!_promo_failure_drain_in_progress) {
     // prevent recursion in copy_to_survivor_space()
     _promo_failure_drain_in_progress = true;
+    // 当前的对象晋升失败时，当前对象所引用的对象仍然要进行标记扫描并进行复制操作
     drain_promo_failure_scan_stack();
     _promo_failure_drain_in_progress = false;
   }
+
+  // 对于YGC来说，如果发生晋升失败的情况，这些对象肯定在Eden空间或From Survivor空间，并且这些对象的转发指针指向自己。
 }
 
 oop DefNewGeneration::copy_to_survivor_space(oop old) {
@@ -800,14 +852,17 @@ oop DefNewGeneration::copy_to_survivor_space(oop old) {
   oop obj = NULL;
 
   // Try allocating obj in to-space (unless too old)
+  // 当对象的年龄没有达到晋升阈值时，尝试将此对象移动到To Survivor空间这里先分配内存
   if (old->age() < tenuring_threshold()) {
     obj = (oop) to()->allocate(s);
   }
 
   // Otherwise try allocating obj tenured
+  // 当obj为NULL时，表示在To Survivor空间分配内存不成功，或者可能是对象达到了晋升阈值，而没有在To Survivor空间分配内存，此时需要晋升对象到老年代
   if (obj == NULL) {
     obj = _next_gen->promote(old, s);
     if (obj == NULL) {
+      // 对象晋升到老年代时失败，设置_promotion_failed标记为true，当此值为true时会触发FGC
       handle_promotion_failure(old);
       return old;
     }
@@ -817,14 +872,17 @@ oop DefNewGeneration::copy_to_survivor_space(oop old) {
     Prefetch::write(obj, interval);
 
     // Copy obj
+    // 将原对象的数据内容复制到To Survivor空间
     Copy::aligned_disjoint_words((HeapWord*)old, (HeapWord*)obj, s);
 
     // Increment age if obj still in new generation
+    // 增加新对象的age并更新ageTable中sizes变量的值
     obj->incr_age();
     age_table()->add(obj, s);
   }
 
   // Done, insert forward pointer to obj in this header
+  // 调用forward_to()设置原对象的对象头为转发指针，表示该对象已被复制，转发指针指向新对象位置。
   old->forward_to(obj);
 
   return obj;
@@ -908,6 +966,7 @@ void DefNewGeneration::reset_scratch() {
 // 1. To区空闲
 // 2. 下一个内存代的可用空间能够容纳当前内存代的所有对象(用于对象升级)
 bool DefNewGeneration::collection_attempt_is_safe() {
+  // To Survivor空间如果不为空，则无法采用复制算法，也就无法执行YGC
   if (!to()->is_empty()) { // To Survivor 区空闲
     if (Verbose && PrintGCDetails) {
       gclog_or_tty->print(" :: to is not empty :: ");
@@ -915,12 +974,14 @@ bool DefNewGeneration::collection_attempt_is_safe() {
     // 如果to区非空则返回false，正常都是空的
     return false;
   }
+  // 设置年轻代的下一个代为老年代
   if (_next_gen == NULL) {
     // 初始化_next_gen，DefNewGeneration第一次准备垃圾回收前_next_gen一直为nul
     GenCollectedHeap* gch = GenCollectedHeap::heap();
     _next_gen = gch->next_gen(this);
   }
   // 判断next_gen是否有充足的空间，允许年轻代的对象复制到老年代中
+  // 调用used()函数获取当前年轻代已经使用的所有内存
   return _next_gen->promotion_attempt_is_safe(used());
 }
 

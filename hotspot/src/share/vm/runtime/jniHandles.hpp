@@ -92,6 +92,8 @@ class JNIHandles : AllStatic {
 
 // JNI handle blocks holding local/global JNI handles
 
+// 每个正在使用的JNIHandleBlock都通过_next属性连接成单链表的形式。
+// JNIHandleBlock是分配在堆中的内存块，每个块可分配32个句柄，对应着_handles数组的32个索引位，每个索引位存储着oop。
 class JNIHandleBlock : public CHeapObj<mtInternal> {
   friend class VMStructs;
   friend class CppInterpreter;
@@ -102,6 +104,8 @@ class JNIHandleBlock : public CHeapObj<mtInternal> {
   };
 
   oop             _handles[block_size_in_oops]; // The handles
+  // top指向_handles数组中当前可使用的槽位，如果_handles数组没有空闲的槽位，则top指向数组最后一个槽位的下一个位置。
+  // 这样我们只需要遍历_handles数组就可以找到所有的引用对象了。
   int             _top;                         // Index of next unused handle
   JNIHandleBlock* _next;                        // Link to next block
 

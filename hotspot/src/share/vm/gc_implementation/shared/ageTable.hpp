@@ -41,16 +41,16 @@ class ageTable VALUE_OBJ_CLASS_SPEC {
 
  public:
   // constants
-  enum { table_size = markOopDesc::max_age + 1 };
+  enum { table_size = markOopDesc::max_age + 1 };       // table_size=16
 
   // instance variables
-  size_t sizes[table_size];
+  size_t sizes[table_size];                             // 某个年龄代对象的总大小
 
   // constructor.  "global" indicates that this is the global age table
   // (as opposed to gc-thread-local)
   ageTable(bool global = true);
 
-  // clear table
+  // clear table    // 初始化sizes数组中的值为0
   void clear();
 
   // add entry

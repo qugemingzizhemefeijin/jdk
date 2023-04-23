@@ -60,7 +60,9 @@ ageTable::ageTable(bool global) {
   }
 }
 
+// 初始化sizes数组
 void ageTable::clear() {
+  // 初始化sizes数组中的值为0
   for (size_t* p = sizes; p < sizes + table_size; ++p) {
     *p = 0;
   }
@@ -79,17 +81,20 @@ void ageTable::merge_par(ageTable* subTable) {
 }
 
 uint ageTable::compute_tenuring_threshold(size_t survivor_capacity) {
+  // 设置期望的Survivor大小为实际的Survivor大小的一半
   size_t desired_survivor_size = (size_t)((((double) survivor_capacity)*TargetSurvivorRatio)/100);
   size_t total = 0;
   uint age = 1;
   assert(sizes[0] == 0, "no objects with age zero should be recorded");
-  while (age < table_size) {
+  while (age < table_size) {            // table_size的值为16
     total += sizes[age];
     // check if including objects of age 'age' made us pass the desired
     // size, if so 'age' is the new threshold
+    // 如果所有小于等于age的对象总容量大于期望值，则直接跳出
     if (total > desired_survivor_size) break;
     age++;
   }
+  // MaxTenuringThreshold默认的值为15
   uint result = age < MaxTenuringThreshold ? age : MaxTenuringThreshold;
 
   if (PrintTenuringDistribution || UsePerfData) {

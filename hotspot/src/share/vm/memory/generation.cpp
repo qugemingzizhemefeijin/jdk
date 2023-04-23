@@ -173,6 +173,7 @@ Generation* Generation::next_gen() const {
 // max取可用空间多的Generation
 size_t Generation::max_contiguous_available() const {
   // The largest number of contiguous free words in this or any higher generation.
+  // 从当前代或比当前代更高的内存代中找出连续空闲空间的最大值，由于当前老年代已经没有更高的内存代，所以只是找出老年代的连续空闲空间
   size_t max = 0; // 取可用空间多的代的剩余空间(只取1个Generation)
   for (const Generation* gen = this; gen != NULL; gen = gen->next_gen()) {
     size_t avail = gen->contiguous_available();
@@ -197,6 +198,7 @@ bool Generation::promotion_attempt_is_safe(size_t max_promotion_in_bytes) const 
 }
 
 // Ignores "ref" and calls allocate().
+// 对象需要晋升的调用函数
 oop Generation::promote(oop obj, size_t obj_size) {
   assert(obj_size == (size_t)obj->size(), "bad obj_size passed in");
 
@@ -212,6 +214,8 @@ oop Generation::promote(oop obj, size_t obj_size) {
     return oop(result);
   } else {
     GenCollectedHeap* gch = GenCollectedHeap::heap();
+    // 如果当前的内存无法分配，则在Generation::promote()函数中调用handle_failed_promotion()函数处理晋升失败的情况。
+    // openjdk/hotspot/src/share/vm/memory/genCollectedHeap.cpp
     return gch->handle_failed_promotion(this, obj, obj_size);
   }
 }

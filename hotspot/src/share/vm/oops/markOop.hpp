@@ -366,7 +366,7 @@ class markOopDesc: public oopDesc {
     assert((v & ~age_mask) == 0, "shouldn't overflow age field");
     return markOop((value() & ~age_mask_in_place) | (((uintptr_t)v & age_mask) << age_shift));
   }
-  markOop incr_age()          const { return age() == max_age ? markOop(this) : set_age(age() + 1); }
+  markOop incr_age()          const { /* max_age的值为15 */return age() == max_age ? markOop(this) : set_age(age() + 1); }
 
   // hash operations
   intptr_t hash() const {

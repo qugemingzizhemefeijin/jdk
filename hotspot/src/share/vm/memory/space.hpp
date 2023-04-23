@@ -813,7 +813,10 @@ class ContiguousSpace: public CompactibleSpace {
   HeapWord* top() const            { return _top;    }
   void set_top(HeapWord* value)    { _top = value; }
 
-  virtual void set_saved_mark()    { _saved_mark_word = top();    }
+  virtual void set_saved_mark()    {
+        // 获取ContiguousSpace::_top属性值并赋值给Space类中定义的_saved_mark_word属性
+        _saved_mark_word = top();
+  }
   void reset_saved_mark()          { _saved_mark_word = bottom(); }
 
   WaterMark bottom_mark()     { return WaterMark(this, bottom()); }

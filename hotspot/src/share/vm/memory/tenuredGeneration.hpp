@@ -70,6 +70,7 @@ class TenuredGeneration: public OneContigSpaceCardGeneration {
   // set. This is better than using th policy's should_collect_gen0_first()
   // since that causes us to do an extra unnecessary pair of restart-&-stop-world.
   virtual bool full_collects_younger_generations() const {
+    // CollectGen0First的默认值为false，表示在回收老年代时顺便回收比老年代年轻的代，因此也会回收年轻代。
     return !CollectGen0First;
   }
 

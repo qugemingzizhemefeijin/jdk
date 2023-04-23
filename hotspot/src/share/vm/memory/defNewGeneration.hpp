@@ -82,6 +82,7 @@ protected:
   //     All objects in the young generation are unmarked.
   //     Eden, from-space, and to-space will all be collected by
   //       the full collection.
+  // 处理晋升失败的情况
   void handle_promotion_failure(oop);
 
   // In the absence of promotion failure, we wouldn't look at "from-space"
@@ -227,6 +228,7 @@ protected:
 
   // Space enquiries
   size_t capacity() const;
+  // 计算年轻代已使用的空间
   size_t used() const;
   size_t free() const;
   size_t max_capacity() const;
@@ -346,6 +348,7 @@ protected:
                                 bool is_tlab,
                                 bool parallel = false);
 
+  // 复制活跃对象到TO空间或者老年代空间
   oop copy_to_survivor_space(oop old);
   uint tenuring_threshold() { return _tenuring_threshold; }
 
@@ -376,6 +379,7 @@ protected:
                                 bool clear_space,
                                 bool mangle_space);
   // Scavenge support
+  // 交换from和to空间
   void swap_spaces();
 };
 

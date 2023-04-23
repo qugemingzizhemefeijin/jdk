@@ -362,6 +362,16 @@ bool GenCollectedHeap::should_do_concurrent_full_gc(GCCause::Cause cause) {
           (cause == GCCause::_java_lang_system_gc && ExplicitGCInvokesConcurrent));
 }
 
+// 当触发YGC时会产生一个VM_GenCollectForAllocation类型的任务，VMThread线程会调用VM_GenCollectForAllocation::doit()函数执行这个任务。
+// 在doit()函数中调用GenCollectorPolicy::satisfy_failed_allocation()函数处理内存申请失败的YGC请求，此函数会继续调用do_collecton()函数。
+// Serial收集器通过调用do_collection()函数完成YGC。
+
+// 此函数会根据传递的参数及其他判断条件来决定是只执行YGC还是只执行FGC，或者可能执行完YGC后再执行FGC。
+// @param full                  full值为false，表示进行YGC
+// @param clear_all_soft_refs   为false，表示不处理软引用，因为触发YGC时并不能说明内存紧张，只有执行FGC时才可能处理软引用
+// @param size                  表示在请求分配此大小的内存时，由于空间不足而触发本次YGC
+// @param is_tlab               为true时，表示在为新的TLAB分配内存时触发此次垃圾回收，通过调用GenCollectedHeap::allocate_new_tlab()函数触发
+// @param max_level             在执行YGC和FGC时都为1，因为max_level的值就表示老年代，没有比老年代更高的代存在了
 void GenCollectedHeap::do_collection(bool  full,
                                      bool   clear_all_soft_refs,
                                      size_t size,
@@ -384,6 +394,11 @@ void GenCollectedHeap::do_collection(bool  full,
     return; // GC is disabled (e.g. JNI GetXXXCritical operation)
   }
 
+  // 检查是否需要在本次GC时回收所有的软引用。MarkSweepPolicy回收策略会根据具体的GC情况在特定时刻决定是否对软引用指向的referent进行回收。
+  // 注意，不同的回收策略执行回收任务时使用的策略可能不一样，有的可能是空间不够的时候回收软引用，有的可能是GC过于频繁或者过慢的时候会回收软引用。
+  // 在执行YGC时，clear_all_soft_refs参数的值为false，因为YGC不能说明内存紧张。
+  // 如果在MarkSweepPolicy回收策略下，调用collector_policy()函数会获取CollectorPolicy类中的_should_clear_all_soft_refs属性的值，
+  // 这个值在每次GC完成后会设置为false，因此最终不会清除软引用。
   const bool do_clear_all_soft_refs = clear_all_soft_refs ||
                           collector_policy()->should_clear_all_soft_refs();
 
@@ -395,13 +410,14 @@ void GenCollectedHeap::do_collection(bool  full,
 
   {
     FlagSetting fl(_is_gc_active, true);
-
+    // 只有执行FGC时complete的值才为true
     bool complete = full && (max_level == (n_gens()-1));
     const char* gc_cause_prefix = complete ? "Full GC" : "GC";
     gclog_or_tty->date_stamp(PrintGC && PrintGCDateStamps);
     TraceCPUTime tcpu(PrintGCDetails, true, gclog_or_tty);
     GCTraceTime t(GCCauseString(gc_cause_prefix, gc_cause()), PrintGCDetails, false, NULL);
-
+    // 此方法会执行TLAB相关的策略。如：当某个TLAB中的剩余空间不足以满足分配请求并且是可丢弃的情况下，
+    // 向这个剩余空间中填充可解析的Object对象或整数类型数组，内存会变得连续。另外，各个TLAB中可能还有没有分配完的剩余空间，这些剩余空间都需要填充。
     gc_prologue(complete);
     increment_total_collections(complete);
 
@@ -411,6 +427,10 @@ void GenCollectedHeap::do_collection(bool  full,
     if (full) {
       // Search for the oldest generation which will collect all younger
       // generations, and start collection loop there.
+      // 如果是FGC，那么在回收高的内存代时也会回收比自己低的内存代。这个逻辑主要是计算starting_level属性的值，
+      // 这样_gens[0]到_gens[starting_level]所代表的内存代就会由本次GC负责回收。
+      // 对于Serial/Serial Old收集器组合来说，新生代用DefNewGeneration实例表示，老年代用TenuredGeneration实例表示。
+      // 当进行FGC时，max_level的值为1，而最终starting_level的值也为1，也就是FGC同时回收年轻代和老年代。
       for (int i = max_level; i >= 0; i--) {
         if (_gens[i]->full_collects_younger_generations()) {
           starting_level = i;
@@ -421,8 +441,12 @@ void GenCollectedHeap::do_collection(bool  full,
 
     bool must_restore_marks_for_biased_locking = false;
 
+    // 对于YGC来说，starting_level的值为0；对于FGC来说，starting_level的值为1对于YGC来说，max_level的值为1，
+    // 因此优先执行gen[0]内存代的回收，如果回收后仍不满足，则触发此次YGC操作的内存分配请求，那么还会对gen[1]进行回收，此时执行的就是FGC。
     int max_level_collected = starting_level;
     for (int i = starting_level; i <= max_level; i++) {
+      // openjdk/hotspot/src/share/vm/memory/generation.hpp
+      // 如果是YGC：判断此年轻代是否支持此次内存分配请求，如果不支持，那么YGC执行完成后也不能达到目的，还要继续执行FGC。
       if (_gens[i]->should_collect(full, size, is_tlab)) {
         if (i == n_gens() - 1) {  // a major collection is to happen
           if (!complete) {
@@ -474,8 +498,8 @@ void GenCollectedHeap::do_collection(bool  full,
           BiasedLocking::preserve_marks();
         }
 
-        // Do collection work
-        {
+        // Do collection work   // 执行垃圾回收的工作
+        {                       // 匿名块开始
           // Note on ref discovery: For what appear to be historical reasons,
           // GCH enables and disabled (by enqueing) refs discovery.
           // In the future this should be moved into the generation's
@@ -487,6 +511,7 @@ void GenCollectedHeap::do_collection(bool  full,
           // from GCH). XXX
 
           HandleMark hm;  // Discard invalid handles created during gc
+          // 为_saved_mark_word变量赋值为碰撞指针_top的值
           save_marks();   // save marks for all gens
           // We want to discover references, but not process them yet.
           // This mode is disabled in process_discovered_references if the
@@ -518,8 +543,12 @@ void GenCollectedHeap::do_collection(bool  full,
             rp->set_enqueuing_is_done(false);
           }
           rp->verify_no_references_recorded();
-        }
+        } // 匿名块结束
         max_level_collected = i;
+
+        // 检查本次GC完成后，是否能满足触发本次GC回收的内存分配请求。如果能满足，则size参数的值为0，
+        // 那么下次在调用更高内存代的should_collect()函数时就会返回false；否则会返回true，继续执行高内存代的垃圾回收，
+        // 以求回收更多的垃圾来满足这次内存分配请求。
 
         // Determine if allocation request was met.
         if (size > 0) {
@@ -1273,6 +1302,8 @@ oop GenCollectedHeap::handle_failed_promotion(Generation* old_gen,
   assert(obj_size == (size_t)obj->size(), "bad obj_size passed in");
   HeapWord* result = NULL;
 
+  // 如果老年代的内存不足，则调用handle_failed_promotion()函数进行内存扩容然后再分配。
+  // 如果扩容后仍然分配失败，则最终只能返回NULL。YGC晋升失败会触发FGC。
   result = old_gen->expand_and_allocate(obj_size, false);
 
   if (result != NULL) {

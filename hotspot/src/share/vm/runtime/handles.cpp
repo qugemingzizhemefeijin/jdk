@@ -67,6 +67,7 @@ Handle::Handle(Thread* thread, oop obj) {
 
 static uintx chunk_oops_do(OopClosure* f, Chunk* chunk, char* chunk_top) {
   oop* bottom = (oop*) chunk->bottom();
+  // chunk_top就是_hwm
   oop* top    = (oop*) chunk_top;
   uintx handles_visited = top - bottom;
   assert(top >= bottom && top <= (oop*) chunk->top(), "just checking");
@@ -88,9 +89,11 @@ NOT_PRODUCT(jint _nof_handlemarks  = 0;)
 void HandleArea::oops_do(OopClosure* f) {
   uintx handles_visited = 0;
   // First handle the current chunk. It is filled to the high water mark.
+  // 首先遍历列表中最后一个使用的Chunk块，也就是用来分配句柄的块
   handles_visited += chunk_oops_do(f, _chunk, _hwm);
   // Then handle all previous chunks. They are completely filled.
   Chunk* k = _first;
+  // 遍历最后一个块之前的所有块，这些块中已经没有空闲的槽位可以分配句柄了
   while(k != _chunk) {
     handles_visited += chunk_oops_do(f, k, k->top());
     k = k->next();
@@ -105,7 +108,7 @@ void HandleArea::oops_do(OopClosure* f) {
     warning("Visited in HandleMark : %d", handles_visited);
 #endif
   }
-  if (_prev != NULL) _prev->oops_do(f);
+  if (_prev != NULL) _prev->oops_do(f);         // _prev为HandleArea*类型
 }
 
 // 创建一个新的HandleMark以后，它保存当前线程的area的_chunk、_hwm和_max等属性，代码执行期间新创建的Handle实例是在当前线程的area中分配内存，
