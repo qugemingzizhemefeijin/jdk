@@ -1485,6 +1485,21 @@ DT_RETURN_MARK_DECL(NewObject, jobject
                     , HOTSPOT_JNI_NEWOBJECT_RETURN(_ret_ref));
 #endif /* USDT2 */
 
+// 在执行本地代码时，如果遇到创建对象和删除对象等操作，会通过JNI函数完成，而JNI函数会对当前线程执行暂停操作。
+// JNI_ENTRY宏定义是关键，这个宏定义创建了一个ThreadInVMfromNative实例。创建这个实例时会调用构造函数，构造函数调用完成后会自动调用析构函数。
+// 下面来看看构造函数和析构函数的实现代码：
+// class ThreadInVMfromNative : public ThreadStateTransition {
+//  public:
+//      ThreadInVMfromNative(JavaThread* thread) : ThreadStateTransition(thread)
+//      // hotspot/src/share/vm/runtime/interfaceSupport.hpp
+//      trans_from_native(_thread_in_vm);
+//  }
+//  ~ThreadInVMfromNative() {
+//      trans_and_fence(_thread_in_vm, _thread_in_native);
+//  }
+// };
+
+// JNI中创建Java对象
 JNI_ENTRY(jobject, jni_NewObject(JNIEnv *env, jclass clazz, jmethodID methodID, ...))
   JNIWrapper("NewObject");
 #ifndef USDT2

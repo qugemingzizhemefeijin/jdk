@@ -330,6 +330,7 @@ void TemplateInterpreterGenerator::generate_all() {
   }
 
   { CodeletMark cm(_masm, "safepoint entry points");
+    // 生成安全点入口
     Interpreter::_safept_entry =
       EntryPoint(
         generate_safept_entry_for(btos, CAST_FROM_FN_PTR(address, InterpreterRuntime::at_safepoint)),
@@ -609,10 +610,13 @@ static inline void copy_table(address* from, address* to, int size) {
   while (size-- > 0) *to++ = *from++;
 }
 
+// 通知模版解释器在执行下一条字节码时进入安全点
 void TemplateInterpreter::notice_safepoints() {
   if (!_notice_safepoints) {
     // switch to safepoint dispatch table
     _notice_safepoints = true;
+    // 将_active_table中的相关入口点替换为_safept_table中对应的入口点，而_active_table就是字节码派发表。
+    // 字节码模板解释器在执行字节码时，需要用_active_table来派发字节码，_active_table会在HotSpot VM启动时预先生成。
     copy_table((address*)&_safept_table, (address*)&_active_table, sizeof(_active_table) / sizeof(address));
   }
 }
@@ -626,6 +630,7 @@ void TemplateInterpreter::ignore_safepoints() {
   if (_notice_safepoints) {
     if (!JvmtiExport::should_post_single_step()) {
       // switch to normal dispatch table
+      // 更新为正常的转发表入口
       _notice_safepoints = false;
       copy_table((address*)&_normal_table, (address*)&_active_table, sizeof(_active_table) / sizeof(address));
     }

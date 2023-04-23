@@ -176,7 +176,9 @@ class TemplateInterpreter: public AbstractInterpreter {
   static address return_entry(TosState state, int length, Bytecodes::Code code);
 
   // Safepoint support
+  // 通知模版解释器在执行下一条字节码时进入安全点
   static void       notice_safepoints();                        // stops the thread when reaching a safepoint
+  // 将字节码派发表替换为原来正常的字节码表
   static void       ignore_safepoints();                        // ignores safepoints
 
   // Deoptimization support

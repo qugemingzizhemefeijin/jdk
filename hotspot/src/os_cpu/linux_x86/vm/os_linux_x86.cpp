@@ -515,6 +515,9 @@ JVM_handle_linux_signal(int sig,
     // save all thread context in case we need to restore it
     if (thread != NULL) thread->set_saved_exception_pc(pc);
 
+    // 在signal handler里找出能调用GC的stub入口，把这个入口设置在ucontext的PC字段里。
+    // 信号处理器函数会执行stub，而stub是一段预先生成好的机器码片段。
+    // 有多种类型的stub，但不管是哪种类型的stub，最终都会调用SafepointSynchronize::block()函数（不一定对，可能这段话只是针对安全点的编译线程）
     uc->uc_mcontext.gregs[REG_PC] = (greg_t)stub;
     // 返回 true 代表 JVM 进程不会退出
     return true;

@@ -2372,10 +2372,20 @@ void JavaThread::verify_not_published() {
 // Async exception ISN'T checked.
 // Note only the ThreadInVMfromNative transition can call this function
 // directly and when thread state is _thread_in_native_trans
+// 本机 ==>VM/Java 屏障检测到安全点正在进行或_suspend_flags不为零时，路径较慢。
+// 如果存在挂起请求，则当前线程需要自挂起和/或在安全点正在进行时阻止。不检查异步异常。
+// 请注意，只有 ThreadInVMfromNative 可以直接调用此函数，并且当线程状态为_thread_in_native_trans
 void JavaThread::check_safepoint_and_suspend_for_native_trans(JavaThread *thread) {
   assert(thread->thread_state() == _thread_in_native_trans, "wrong state");
 
+  // 线程可能执行自挂起逻辑，如果是自挂起，那么在_thread_blocked状态下，GC线程可进行垃圾回收。
+  // 如果GC在垃圾回收过程中自挂起，恢复运行时还会调用do_call_back()函数判断线程是否需要进入安全点或其他线程（包括GC线程）是否正在执行安全点操作。
+  // 如果是，则调用block()函数阻塞当前线程，从而防止一些阻塞线程突然恢复运行，扰乱安全点下执行的操作。
+
+  // 对于不执行挂起操作的线程，如果要从_thread_in_native进入_thread_in_vm状态，同样会调用do_call_back()函数和block()函数进入安全点。
+
   JavaThread *curJT = JavaThread::current();
+  // 线程要求自挂起
   bool do_self_suspend = thread->is_external_suspend();
 
   assert(!curJT->has_last_Java_frame() || curJT->frame_anchor()->walkable(), "Unwalkable stack in native->vm transition");
@@ -2384,6 +2394,7 @@ void JavaThread::check_safepoint_and_suspend_for_native_trans(JavaThread *thread
   // thread is not the current thread. In older versions of jdbx, jdbx
   // threads could call into the VM with another thread's JNIEnv so we
   // can be here operating on behalf of a suspended thread (4432884).
+  // AllowJNIEnvProxy的默认值为false，因此当do_self_suspend的值为true时就会挂起
   if (do_self_suspend && (!AllowJNIEnvProxy || curJT == thread)) {
     JavaThreadState state = thread->thread_state();
 
@@ -2403,7 +2414,9 @@ void JavaThread::check_safepoint_and_suspend_for_native_trans(JavaThread *thread
     // see the _thread_blocked state. We must check for safepoint
     // after restoring the state and make sure we won't leave while a safepoint
     // is in progress.
+    // 当线程自挂起时，将线程的状态更新为阻塞状态，这样在进入安全点时就会处理阻塞状态的线程
     thread->set_thread_state(_thread_blocked);
+    // 线程进行自挂起
     thread->java_suspend_self();
     thread->set_thread_state(state);
     // Make sure new state is seen by VM thread
@@ -2418,6 +2431,7 @@ void JavaThread::check_safepoint_and_suspend_for_native_trans(JavaThread *thread
     }
   }
 
+  // 当要求线程进入安全点或正在执行安全点操作时，调用block()函数阻塞当前线程
   if (SafepointSynchronize::do_call_back()) {
     // If we are safepointing, then block the caller which may not be
     // the same as the target thread (see above).

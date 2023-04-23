@@ -1144,6 +1144,7 @@ class JavaThread: public Thread {
       }
     } while (do_self_suspend);
   }
+  // JNI中检查线程是否需要执行安全点挂起
   static void check_safepoint_and_suspend_for_native_trans(JavaThread *thread);
   // Check for async exception in addition to safepoint and suspend request.
   static void check_special_condition_for_native_trans(JavaThread *thread);
