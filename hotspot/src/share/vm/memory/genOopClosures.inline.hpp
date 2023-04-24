@@ -56,6 +56,7 @@ template <class T> inline void OopsInGenClosure::do_barrier(T* p) {
   assert(!oopDesc::is_null(heap_oop), "expected non-null oop");
   oop obj = oopDesc::decode_heap_oop_not_null(heap_oop);
   // If p points to a younger generation, mark the card.
+  // _gen_boundary指向的是年轻代的结束地址，如果当前被引用的对象在年轻代需要执行屏障操作
   if ((HeapWord*)obj < _gen_boundary) {
     _rs->inline_write_ref_field_gc(p, obj);
   }
@@ -132,6 +133,8 @@ template <class T> inline void FastScanClosure::do_oop_work(T* p) {
         do_klass_barrier();
       } else if (_gc_barrier) {
         // Now call parent closure
+        // 处理屏障，当前的对象是从年轻代晋升上来的，如果此对象有对年轻代对象的引用，那么需要将对应的卡表项标记为dirty_card，
+        // 这样才不会在下一次YGC过程中漏掉老年代对象对年轻代对象的引用。
         do_barrier(p);
       }
     }

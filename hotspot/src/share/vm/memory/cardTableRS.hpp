@@ -120,6 +120,7 @@ public:
   void younger_refs_iterate(Generation* g, OopsInGenClosure* blk);
 
   void inline_write_ref_field_gc(void* field, oop new_val) {
+    // 获取当前内存地址对应的卡表字节
     jbyte* byte = _ct_bs->byte_for(field);
     *byte = youngergen_card;
   }

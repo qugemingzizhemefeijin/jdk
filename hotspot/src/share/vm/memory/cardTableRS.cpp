@@ -195,10 +195,12 @@ void ClearNoncleanCardWrapper::do_MemRegion(MemRegion mr) {
   assert(mr.word_size() > 0, "Error");
   assert(_ct->is_aligned(mr.start()), "mr.start() should be card aligned");
   // mr.end() may not necessarily be card aligned.
+  // 根据要扫描的内存范围确定卡表索引的范围，因为卡表是从后向前扫描查找脏卡。所以最后一个卡表索引为cur_entry，而开始的卡表索引为limit
   jbyte* cur_entry = _ct->byte_for(mr.last());
   const jbyte* limit = _ct->byte_for(mr.start());
   HeapWord* end_of_non_clean = mr.end();
   HeapWord* start_of_non_clean = end_of_non_clean;
+  // 根据要扫描的内存范围确定卡表索引的范围，因为卡表是从后向前扫描查找脏卡
   while (cur_entry >= limit) {
     HeapWord* cur_hw = _ct->addr_for(cur_entry);
     if ((*cur_entry != CardTableRS::clean_card_val()) && clear_card(cur_entry)) {
@@ -208,12 +210,15 @@ void ClearNoncleanCardWrapper::do_MemRegion(MemRegion mr) {
     } else {
       // We hit a "clean" card; process any non-empty
       // "dirty" range accumulated so far.
+      // 在start_of_non_clean～end_of_non_clean范围之间的是连续的脏卡
       if (start_of_non_clean < end_of_non_clean) {
         const MemRegion mrd(start_of_non_clean, end_of_non_clean);
         _dirty_card_closure->do_MemRegion(mrd);
       }
 
       // fast forward through potential continuous whole-word range of clean cards beginning at a word-boundary
+      // 如果cur_entry是字对齐的，则以字为单位向前移动，加快查找的速度。
+      // 在64位系统下，一个字等于8个字节，由于clean_card为-1，则一个字节的8个位都为1，而在一个字里，8个字节的64位仍然为1，所以可以一次处理8个字节
       if (is_word_aligned(cur_entry)) {
         jbyte* cur_row = cur_entry - BytesPerWord;
         while (cur_row >= limit && *((intptr_t*)cur_row) ==  CardTableRS::clean_card_row()) {
@@ -221,7 +226,7 @@ void ClearNoncleanCardWrapper::do_MemRegion(MemRegion mr) {
         }
         cur_entry = cur_row + BytesPerWord;
         cur_hw = _ct->addr_for(cur_entry);
-      }
+      } // 结束while循环
 
       // Reset the dirty window, while continuing to look
       // for the next dirty card that will start a
@@ -281,6 +286,7 @@ void CardTableRS::write_ref_field_gc_par(void* field, oop new_val) {
 
 void CardTableRS::younger_refs_in_space_iterate(Space* sp,
                                                 OopsInGenClosure* cl) {
+  // 确定扫描对象的范围为_bottom~_saved_mark_word，对于Serial收集器来说，_saved_mark_word与_top属性的值永远相同
   const MemRegion urasm = sp->used_region_at_save_marks();
 #ifdef ASSERT
   // Convert the assertion check to a warning if we are running
@@ -309,6 +315,8 @@ void CardTableRS::younger_refs_in_space_iterate(Space* sp,
     ShouldNotReachHere();
   }
 #endif
+  // _ct_bs的类型为CardTableModRefBSForCTRS*
+  // 扫描特定范围内的对象，不过并不是全量扫描，只扫描脏卡对应的内存区域
   _ct_bs->non_clean_card_iterate_possibly_parallel(sp, urasm, cl, this);
 }
 

@@ -100,7 +100,12 @@ FastEvacuateFollowersClosure(GenCollectedHeap* gch, int level,
   _scan_cur_or_nonheap(cur), _scan_older(older)
 {}
 
+// 闭包中封装了标记并复制活跃对象的逻辑
 void DefNewGeneration::FastEvacuateFollowersClosure::do_void() {
+  // 在执行YGC时，循环处理年轻代和老年代的对象，就是在oop_since_save_marks_iterate()函数中检查_saved_mark_word是否追上了_top，
+  // 这是采用广度遍历来执行复制算法的方式。需要说明的是，老年代也需要这样的操作，因为年轻代对象可能会晋升到老年代，
+  // 而这些晋升对象必须要执行和To Survivor中的对象同样的操作，也就是遍历对象的引用。
+  // 循环结束的条件就是判断年轻代和老年代的_saved_mark_word是否追上了_top
   do {
     _gch->oop_since_save_marks_iterate(_level, _scan_cur_or_nonheap,
                                        _scan_older);
@@ -645,6 +650,7 @@ void DefNewGeneration::collect(bool   full,
                                       gch->rem_set()->klass_rem_set());
 
   set_promo_failure_scan_stack_closure(&fsc_with_no_gc_barrier);
+  // 标记并复制活跃对象的逻辑
   FastEvacuateFollowersClosure evacuate_followers(gch, _level, this,
                                                   &fsc_with_no_gc_barrier,
                                                   &fsc_with_gc_barrier);

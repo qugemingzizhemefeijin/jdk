@@ -240,7 +240,7 @@ int InstanceMirrorKlass::                                                       
 oop_oop_iterate##nv_suffix(oop obj, OopClosureType* closure) {                        \
   /* Get size before changing pointers */                                             \
   SpecializationStats::record_iterate_call##nv_suffix(SpecializationStats::irk);      \
-                                                                                      \
+  /* 遍历对象引用的其他对象 */                                                             \
   InstanceKlass::oop_oop_iterate##nv_suffix(obj, closure);                            \
                                                                                       \
   if_do_metadata_checked(closure, nv_suffix) {                                        \

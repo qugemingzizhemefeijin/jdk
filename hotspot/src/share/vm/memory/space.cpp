@@ -135,6 +135,7 @@ void DirtyCardToOopClosure::do_MemRegion(MemRegion mr) {
          "Not decreasing");
   NOT_PRODUCT(_last_bottom = mr.start());
 
+  // mr表示连续n个卡页，查找第一个卡页的第一个对象和最后一个卡页之后的第1个对象
   bottom_obj = _sp->block_start(bottom);
   top_obj    = _sp->block_start(last);
 
@@ -246,7 +247,7 @@ void ContiguousSpaceDCTOC::walk_mem_region_with_cl(MemRegion mr,        \
       bottom = next_obj;                                                \
       next_obj = bottom + oop(bottom)->size();                          \
     }                                                                   \
-    /* Last object. */                                                  \
+    /* Last object.  处理最后一个对象 */                                                  \
     oop(bottom)->oop_iterate(cl, mr);                                   \
   }                                                                     \
 }

@@ -476,7 +476,7 @@ void CardTableModRefBS::non_clean_card_iterate_possibly_parallel(Space* sp,
       // we want to clear the cards (which non_clean_card_iterate_serial() does not
       // do for us): clear_cl here does the work of finding contiguous dirty ranges
       // of cards to process and clear.
-
+      // DirtyCardToOopClosure闭包封装了根据脏卡扫描内存区域的逻辑
       DirtyCardToOopClosure* dcto_cl = sp->new_dcto_cl(cl, precision(),
                                                        cl->gen_boundary());
       ClearNoncleanCardWrapper clear_cl(dcto_cl, ct);
