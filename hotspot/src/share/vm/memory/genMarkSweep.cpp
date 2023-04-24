@@ -91,16 +91,20 @@ void GenMarkSweep::invoke_at_safepoint(int level, ReferenceProcessor* rp, bool c
 
   allocate_stacks();
 
+  // 标记所有活跃对象
   mark_sweep_phase1(level, clear_all_softrefs);
 
+  // 计算所有活跃对象在压缩后的偏移地址
   mark_sweep_phase2();
 
   // Don't add any more derived pointers during phase3
   COMPILER2_PRESENT(assert(DerivedPointerTable::is_active(), "Sanity"));
   COMPILER2_PRESENT(DerivedPointerTable::set_active(false));
 
+  // 更新对象的引用地址
   mark_sweep_phase3(level);
 
+  // 移动所有活跃对象到新的位置
   mark_sweep_phase4();
 
   restore_marks();
@@ -125,10 +129,13 @@ void GenMarkSweep::invoke_at_safepoint(int level, ReferenceProcessor* rp, bool c
   // Clear/invalidate below make use of the "prev_used_regions" saved earlier.
   if (all_empty) {
     // We've evacuated all generations below us.
+    // 如果内存代已经不存在任何活跃对象，只需要将老年代的卡表设置为clean_card即可
     rs->clear_into_younger(old_gen);
   } else {
     // Invalidate the cards corresponding to the currently used
     // region and clear those corresponding to the evacuated region.
+    // 如果老年代有活跃的对象，需要将压缩空间对应的所有卡表项标记为dirty_card，
+    // 同时要将老年代中除压缩空间以外的所有剩余空闲空间对应的卡表项标记为clean_card
     rs->invalidate_or_clear(old_gen);
   }
 
@@ -190,7 +197,7 @@ void GenMarkSweep::deallocate_stacks() {
   _objarray_stack.clear(true);
 }
 
-//  将普通根（Universe，JavaThread，JNI 引用的对象等，注意，没有以年轻代为起点） 做为起点，对他们和他们引用的对象，以及他们引用的对象引用的对象......
+// 将普通根（Universe，JavaThread，JNI 引用的对象等，注意，没有以年轻代为起点） 做为起点，对他们和他们引用的对象，以及他们引用的对象引用的对象......
 // 深度打标（标记栈），打标其实只是为对象头设置特殊值，如果必要，会把对象头保存下来（临时结构）
 void GenMarkSweep::mark_sweep_phase1(int level,
                                   bool clear_all_softrefs) {
@@ -209,6 +216,13 @@ void GenMarkSweep::mark_sweep_phase1(int level,
   // Need new claim bits before marking starts.
   ClassLoaderDataGraph::clear_claimed_marks();
   // 扫描根节点，标记年轻代与老年代的所有活跃对象。
+  // 此函数与标记年轻代活跃对象的过程类似，只是传递的参数不同，逻辑上有一些差别。
+  // 其中最主要的差别就是在遍历对象时会遍历年轻代和老年代的所有对象并进行标记，而且是单纯地标记，并不会执行复制操作。
+  // 这是由传递的类型为FollowRootClosure的follow_root_closure中封装的不同逻辑决定的。
+  // Serial Old收集器在调用gen_process_strong_roots()函数时，传入的第2个参数younger_gens_as_roots的值为false，即不会对更低的内存代进行处理，
+  // 因为在SharedHeap::process_strong_roots()函数的处理过程中会标记所有的活跃对象。
+  // 如果存在更高的内存代，那么更低的内存代是无法将更高内存代没有被引用的对象当作垃圾对象处理的，因此虽然不会再处理更低的内存代，
+  // 但仍要将更高内存代的对象当作根集对象递归遍历（HotSpot VM中TenuredGeneration没有更高的内存代了）。
   gch->gen_process_strong_roots(level,
                                 false, // Younger gens are not roots.
                                 true,  // activate StrongRootsScope
@@ -300,6 +314,8 @@ void GenMarkSweep::mark_sweep_phase3(int level) {
   // as the Universe has not been created when the static constructors
   // are run.
   adjust_pointer_closure.set_orig_generation(gch->get_gen(level));
+
+  // adjust_pointer_closure是静态变量，封装了调整对象引用地址的函数
 
   gch->gen_process_strong_roots(level,
                                 false, // Younger gens are not roots.

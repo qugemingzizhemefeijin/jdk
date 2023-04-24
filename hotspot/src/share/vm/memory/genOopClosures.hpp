@@ -45,15 +45,16 @@ typedef GenericTaskQueueSet<OopTaskQueue, mtGC> OopTaskQueueSet;
 // method at the end of their own do_oop method!
 // Note: no do_oop defined, this is an abstract class.
 
+// 主要是针对代进行遍历的，其中的一些属性保存了代相关的信息
 class OopsInGenClosure : public ExtendedOopClosure {
  private:
-  Generation*  _orig_gen;     // generation originally set in ctor
-  Generation*  _gen;          // generation being scanned
+  Generation*  _orig_gen;     // generation originally set in ctor      // 保存之前_gen变量的值
+  Generation*  _gen;          // generation being scanned               // 会被扫描的代，也就是扫描这个代中包含的对象并处理
 
  protected:
   // Some subtypes need access.
-  HeapWord*    _gen_boundary; // start of generation
-  CardTableRS* _rs;           // remembered set
+  HeapWord*    _gen_boundary; // start of generation                    // 代的开始地址
+  CardTableRS* _rs;           // remembered set                         // 卡表
 
   // For assertions
   Generation* generation() { return _gen; }

@@ -38,6 +38,7 @@
 
 // Inline allocation implementations.
 
+// 根据是否使用偏向锁设置对象头信息等，即初始化oop的_mark字段
 void CollectedHeap::post_allocation_setup_common(KlassHandle klass,
                                                  HeapWord* obj) {
   // 初始化对象头markOop
@@ -46,6 +47,7 @@ void CollectedHeap::post_allocation_setup_common(KlassHandle klass,
   post_allocation_install_obj_klass(klass, oop(obj));
 }
 
+// 设置对象头
 void CollectedHeap::post_allocation_setup_no_klass_install(KlassHandle klass,
                                                            HeapWord* objPtr) {
   oop obj = (oop)objPtr;
@@ -57,10 +59,11 @@ void CollectedHeap::post_allocation_setup_no_klass_install(KlassHandle klass,
     obj->set_mark(klass->prototype_header());
   } else {
     // May be bootstrapping
-    obj->set_mark(markOopDesc::prototype());
+    obj->set_mark(markOopDesc::prototype());    // 锁的状态为正常
   }
 }
 
+// 为对象设置_klass属性的值，int数组的_klass为TypeArrayKlass实例，Object_klass为InstanceKlass实例
 void CollectedHeap::post_allocation_install_obj_klass(KlassHandle klass,
                                                    oop obj) {
   // These asserts are kind of complicated because of klassKlass

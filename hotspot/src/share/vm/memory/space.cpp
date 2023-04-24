@@ -388,11 +388,14 @@ HeapWord* CompactibleSpace::forward(oop q, size_t size,
   // First check if we should switch compaction space
   assert(this == cp->space, "'this' should be current compaction space.");
   size_t compaction_max_size = pointer_delta(end(), compact_top);
+  // 在压缩过程中可能由于活跃对象比较多，当前空间不够容纳所有对象，此时可以查找下一个压缩空间。
+  // 如果所有的压缩空间还不能够容纳，则下一个要查找的是更年轻的代直到找到能容纳压缩对象的空间为止。
   while (size > compaction_max_size) {
     // switch to next compaction space
     cp->space->set_compaction_top(compact_top);
     cp->space = cp->space->next_compaction_space();
     if (cp->space == NULL) {
+      // 查找比当前代更年轻的代
       cp->gen = GenCollectedHeap::heap()->prev_gen(cp->gen);
       assert(cp->gen != NULL, "compaction must succeed");
       cp->space = cp->gen->first_compaction_space();
@@ -405,12 +408,14 @@ HeapWord* CompactibleSpace::forward(oop q, size_t size,
   }
 
   // store the forwarding pointer into the mark word
+  // 当q不等于compact_top时，表示对象需要移动，在对象头中存储转发指针compact_top
   if ((HeapWord*)q != compact_top) {
     q->forward_to(oop(compact_top));
     assert(q->is_gc_marked(), "encoding the pointer should preserve the mark");
   } else {
     // if the object isn't moving we can just set the mark to the default
     // mark and handle it specially later on.
+    // 对象不需要移动
     q->init_mark();
     assert(q->forwardee() == NULL, "should be forwarded to NULL");
   }
@@ -420,6 +425,7 @@ HeapWord* CompactibleSpace::forward(oop q, size_t size,
   // we need to update the offset table so that the beginnings of objects can be
   // found during scavenge.  Note that we are updating the offset table based on
   // where the object will be once the compaction phase finishes.
+  // 压缩每个对象的同时需要更新对应的偏移表
   if (compact_top > cp->threshold)
     cp->threshold =
       cp->space->cross_threshold(compact_top - size, compact_top);
@@ -437,7 +443,7 @@ bool CompactibleSpace::insert_deadspace(size_t& allowed_deadspace_words,
     // Recall that we required "q == compaction_top".
     return true;
   } else {
-    allowed_deadspace_words = 0;
+    allowed_deadspace_words = 0;                // 不允许连续死亡对象的存在
     return false;
   }
 }
@@ -490,6 +496,7 @@ void Space::adjust_pointers() {
   assert(q == t, "just checking");
 }
 
+// 调整指针
 void CompactibleSpace::adjust_pointers() {
   // Check first is there is any work to do.
   if (used() == 0) {
@@ -965,6 +972,7 @@ HeapWord* OffsetTableContigSpace::initialize_threshold() {
 
 HeapWord* OffsetTableContigSpace::cross_threshold(HeapWord* start, HeapWord* end) {
   _offsets.alloc_block(start, end);
+  // 获取_next_offset_threshold属性的值
   return _offsets.threshold();
 }
 

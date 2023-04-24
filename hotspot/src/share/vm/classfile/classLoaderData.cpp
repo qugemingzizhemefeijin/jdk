@@ -106,9 +106,13 @@ void ClassLoaderData::oops_do(OopClosure* f, KlassClosure* klass_closure, bool m
     return;
   }
 
+  // 标记java.lang.ClassLoader对象
   f->do_oop(&_class_loader);
+  // 标记依赖的加载器对象
   _dependencies.oops_do(f);
+  // 调用JNIHandleBlock::oops_do()函数标记JNI函数引用的活跃对象
   _handles->oops_do(f);
+  // 标记类加载器加载的所有类
   if (klass_closure != NULL) {
     classes_do(klass_closure);
   }
@@ -125,6 +129,9 @@ void ClassLoaderData::classes_do(KlassClosure* klass_closure) {
   }
 }
 
+// 标记类加载器加载的所有类。
+// 所有加载的类都通过_next_link指针连接起来形成单链表，这样获取类加载器后就可以遍历所有由此类加载器加载的类了，
+// 当类加载器不卸载时，加载的类也不会卸载。类存储在元数据区，但是类中的_java_mirror引用的oop存储在堆中，因此在必要时还需要处理此oop。
 void ClassLoaderData::classes_do(void f(Klass * const)) {
   for (Klass* k = _klasses; k != NULL; k = k->next_link()) {
     f(k);

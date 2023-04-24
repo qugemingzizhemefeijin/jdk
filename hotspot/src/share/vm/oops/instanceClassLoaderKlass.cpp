@@ -120,7 +120,9 @@ ALL_OOP_OOP_ITERATE_CLOSURES_1(InstanceClassLoaderKlass_OOP_OOP_ITERATE_DEFN_m)
 ALL_OOP_OOP_ITERATE_CLOSURES_2(InstanceClassLoaderKlass_OOP_OOP_ITERATE_DEFN_m)
 
 void InstanceClassLoaderKlass::oop_follow_contents(oop obj) {
+  // 标记java.lang.ClassLoader对象引用的其他对象
   InstanceKlass::oop_follow_contents(obj);
+  // 获取类加载器对应的ClassLoaderData
   ClassLoaderData * const loader_data = java_lang_ClassLoader::loader_data(obj);
 
   // We must NULL check here, since the class loader

@@ -607,6 +607,7 @@ inline bool oopDesc::is_unlocked_oop() const {
 
 inline void oopDesc::follow_contents(void) {
   assert (is_gc_marked(), "should be marked");
+  // 将当前活跃对象所引用的所有对象标记并压入栈
   klass()->oop_follow_contents(this);
 }
 

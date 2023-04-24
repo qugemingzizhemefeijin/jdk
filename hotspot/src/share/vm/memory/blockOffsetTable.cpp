@@ -793,6 +793,10 @@ void BlockOffsetArrayContigSpace::alloc_block_work(HeapWord* blk_start,
 HeapWord* BlockOffsetArrayContigSpace::initialize_threshold() {
   assert(!Universe::heap()->is_in_reserved(_array->_offset_array),
          "just checking");
+  // _array的类型为BlockOffsetSharedArray， 它使用BlockOffsetTable::_bottom属性来初始化
+  // _bottom通常指向卡页的起始地址
+  // _next_offset_index通常是第2个卡页的索引
+  // _next_offset_threshold指向第2个卡页的地址
   _next_offset_index = _array->index_for(_bottom);
   _next_offset_index++;
   _next_offset_threshold =

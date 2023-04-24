@@ -828,6 +828,13 @@ void GenCollectedHeap::do_full_collection(bool clear_all_soft_refs) {
    do_full_collection(clear_all_soft_refs, _n_gens - 1);
 }
 
+// 对于Serial和Serial Old收集器来说，无论执行YGC还是FGC，传递的max_level参数的值都为1，因为代的划分只有年轻代和老年代，年轻代为0，老年代为1。
+
+// 由于full参数的值为true，并且当max_level的值为1时，starting_level的值就是1。
+// 接下来会进行循环判断，这个循环会参考starting_level的值初步决定是只执行YGC，还是执行完YGC再执行FGC，还是只执行FGC。
+
+// 当starting_level的值为1时只会循环一次，初步决定是执行FGC，但最终是否执行还要结合其他的条件进行判断，
+// 如调用TenuredGeneration类的should_collect()函数如果返回true才可能执行FGC。should_collect()函数在full参数为true的情况下一定会返回true。
 void GenCollectedHeap::do_full_collection(bool clear_all_soft_refs,
                                           int max_level) {
   int local_max_level;
@@ -838,11 +845,11 @@ void GenCollectedHeap::do_full_collection(bool clear_all_soft_refs,
     local_max_level = max_level;
   }
 
-  do_collection(true                 /* full */,
-                clear_all_soft_refs  /* clear_all_soft_refs */,
+  do_collection(true                 /* full */,                    // 执行一次FGC
+                clear_all_soft_refs  /* clear_all_soft_refs */,     // 是否回收软引用对象
                 0                    /* size */,
-                false                /* is_tlab */,
-                local_max_level      /* max_level */);
+                false                /* is_tlab */,                 // 是否是在分配新的TLAB时触发了GC
+                local_max_level      /* max_level */);              // max_level的值
   // Hack XXX FIX ME !!!
   // A scavenge may not have been attempted, or may have
   // been attempted and failed, because the old gen was too full
@@ -1120,10 +1127,12 @@ GenCollectedHeap* GenCollectedHeap::heap() {
 
 void GenCollectedHeap::prepare_for_compaction() {
   guarantee(_n_gens = 2, "Wrong number of generations");
+  // 对老年代进行处理，计算整理压缩后的地址
   Generation* old_gen = _gens[1];
   // Start by compacting into same gen.
   CompactPoint cp(old_gen, NULL, NULL);
   old_gen->prepare_for_compaction(&cp);
+  // 对年轻代进行处理，计算整理压缩后的地址
   Generation* young_gen = _gens[0];
   young_gen->prepare_for_compaction(&cp);
 }

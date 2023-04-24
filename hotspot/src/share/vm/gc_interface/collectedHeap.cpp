@@ -438,11 +438,13 @@ void
 CollectedHeap::fill_with_object_impl(HeapWord* start, size_t words, bool zap)
 {
   assert(words <= filler_array_max_size(), "too big for a single object");
-
+  // 调用filler_array_min_size()函数获取int数组占用的最小字数，markOop加length对齐后为3个字
   if (words >= filler_array_min_size()) {
     fill_with_array(start, words, zap);
   } else if (words > 0) {
+    // 由于Object类没有声明任何实例变量，所以Object对象的容量就是Object对象头的容量，为2个字
     assert(words == min_fill_size(), "unaligned size");
+    // 填充Object对象
     post_allocation_setup_common(SystemDictionary::Object_klass(), start);
   }
 }

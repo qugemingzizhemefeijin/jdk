@@ -31,12 +31,15 @@ class GenMarkSweep : public MarkSweep {
   friend class VM_MarkSweep;
   friend class G1MarkSweep;
  public:
+  // 调用TenuredGeneration::collect()函数时最终会调用GenMarkSweep::invoke_at_safepoint()函数，
+  // 该函数分几个阶段通过压缩整理算法实现年轻代和老年代的垃圾回收。
+  // 具体就是将年轻代中Eden、From Survivor与To Survivor空间中的对象压缩在年轻代中，而老年代空间中的对象压缩在老年代空间。
   static void invoke_at_safepoint(int level, ReferenceProcessor* rp,
                                   bool clear_all_softrefs);
 
  private:
 
-  // Mark live objects
+  // Mark live objects  // 递归标记所有活跃对象
   static void mark_sweep_phase1(int level, bool clear_all_softrefs);
   // Calculate new addresses
   static void mark_sweep_phase2();

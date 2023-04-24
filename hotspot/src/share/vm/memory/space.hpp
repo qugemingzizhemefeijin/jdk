@@ -518,11 +518,14 @@ protected:
 #define SCAN_AND_FORWARD(cp,scan_limit,block_is_obj,block_size) {            \
   /* Compute the new addresses for the live objects and store it in the mark \
    * Used by universe::mark_sweep_phase2()                                   \
+   * 压缩位置，在此之前的对象都已经完成了整理压缩，                                   \
+   * 下一个活跃对象需要移动到compact_top指向的地址                                  \
    */                                                                        \
   HeapWord* compact_top; /* This is where we are currently compacting to. */ \
                                                                              \
   /* We're sure to be here before any objects are compacted into this        \
    * space, so this is a good time to initialize this:                       \
+   * 初始化CompactibleSpace::_compaction_top属性的值为Space::_bottom属性的值      \
    */                                                                        \
   set_compaction_top(bottom());                                              \
                                                                              \
@@ -542,12 +545,16 @@ protected:
    * we don't start compacting before there is a significant gain to be made.\
    * Occasionally, we want to ensure a full compaction, which is determined  \
    * by the MarkSweepAlwaysCompactCount parameter.                           \
+   * 有时候允许空间中存在一些未标记的死亡对象， 这样可以避免一些不必要的移动               \
+   * 进行MarkSweepAlwaysCompactCount（默认值为4） 次FGC后会有一次完全压缩           \
    */                                                                        \
   uint invocations = MarkSweep::total_invocations();                         \
   bool skip_dead = ((invocations % MarkSweepAlwaysCompactCount) != 0);       \
                                                                              \
   size_t allowed_deadspace = 0;                                              \
   if (skip_dead) {                                                           \
+    /* 获取MarkSweepDeadRatio的值， 默认为5， 最终允许死亡对象占用的空间为 */         \
+    /* 当前空间总容量的5% */                                                    \
     const size_t ratio = allowed_dead_ratio();                               \
     allowed_deadspace = (capacity() * ratio / 100) / HeapWordSize;           \
   }                                                                          \
@@ -578,8 +585,9 @@ protected:
       end_of_live = q;                                                       \
     } else {                                                                 \
       /* run over all the contiguous dead objects */                         \
+      /* 查找连续的死亡对象并跳过 */                                              \
       HeapWord* end = q;                                                     \
-      do {                                                                   \
+      do { /* 这个循环会改变local_end变量的值 */                                 \
         /* prefetch beyond end */                                            \
         Prefetch::write(end, interval);                                      \
         end += block_size(end);                                              \
@@ -587,9 +595,15 @@ protected:
                                                                              \
       /* see if we might want to pretend this object is alive so that        \
        * we don't have to compact quite as often.                            \
+       * 逻辑执行到这里时， local_end可能指向t或者一个被标记的活跃对象的开始地址         \
+       * 只有允许死亡对象存在并且死亡对象不需要移动到压缩地址， 才能够省略移动对象         \
+       * 带来的性能损失                                                         \
        */                                                                    \
       if (allowed_deadspace > 0 && q == compact_top) {                       \
+        /* 计算出连续死亡对象的总容量 */                                          \
         size_t sz = pointer_delta(end, q);                                   \
+        /* 将连续死亡对象合并为一个对象并对此对象进行标记， insert_deadspace()函数 */  \
+        /* 如果返回true， 表示标记成功， 否则需要对死亡对象代表的空闲空间进行处理 */      \
         if (insert_deadspace(allowed_deadspace, q, sz)) {                    \
           compact_top = cp->space->forward(oop(q), sz, cp, compact_top);     \
           q = end;                                                           \
@@ -620,7 +634,7 @@ protected:
       /* move on to the next object */                                       \
       q = end;                                                               \
     }                                                                        \
-  }                                                                          \
+  } /* 结束while循环 */                                                        \
                                                                              \
   assert(q == t, "just checking");                                           \
   if (liveRange != NULL) {                                                   \
@@ -633,6 +647,7 @@ protected:
   _first_dead = first_dead;                                                  \
                                                                              \
   /* save the compaction_top of the compaction space. */                     \
+  /* 保存compact_top的值 */                                                    \
   cp->space->set_compaction_top(compact_top);                                \
 }
 
@@ -645,6 +660,8 @@ protected:
                                                                                 \
   assert(_first_dead <= _end_of_live, "Stands to reason, no?");                 \
                                                                                 \
+  /* 如下if语句的判断条件如果满足， 则说明当前的压缩空间中有一块连续的内存不需要移动 */        \
+  /* 这块连续的内存空间中可能同时包含有死亡对象和标记为活跃的对象 */                        \
   if (q < t && _first_dead > q &&                                               \
       !oop(q)->is_gc_marked()) {                                                \
     /* we have a chunk of the space which hasn't moved and we've                \
@@ -680,6 +697,7 @@ protected:
   const intx interval = PrefetchScanIntervalInBytes;                            \
                                                                                 \
   debug_only(HeapWord* prev_q = NULL);                                          \
+  /* 当q小于t时， 表明还有活跃对象需要进行移动， 继续调整这一部分 */                       \
   while (q < t) {                                                               \
     /* prefetch beyond q */                                                     \
     Prefetch::write(q, interval);                                               \
@@ -710,6 +728,7 @@ protected:
   HeapWord* const t = _end_of_live;                                             \
   debug_only(HeapWord* prev_q = NULL);                                          \
                                                                                 \
+  /* 跳过不需要移动的内存块 */                                                      \
   if (q < t && _first_dead > q &&                                               \
       !oop(q)->is_gc_marked()) {                                                \
     debug_only(                                                                 \
@@ -737,6 +756,7 @@ protected:
                                                                                 \
   const intx scan_interval = PrefetchScanIntervalInBytes;                       \
   const intx copy_interval = PrefetchCopyIntervalInBytes;                       \
+  /* 循环移动所有的活跃对象到转发指针指向的地址 */                                      \
   while (q < t) {                                                               \
     if (!oop(q)->is_gc_marked()) {                                              \
       /* mark is pointer to next marked oop */                                  \
@@ -755,6 +775,7 @@ protected:
       Prefetch::write(compaction_top, copy_interval);                           \
                                                                                 \
       /* copy object and reinit its mark */                                     \
+      /* 复制对象到转发指针指向的地址， 同时初始化对象头 */                              \
       assert(q != compaction_top, "everything in this pass should be moving");  \
       Copy::aligned_conjoint_words(q, compaction_top, size);                    \
       oop(compaction_top)->init_mark();                                         \
@@ -768,6 +789,7 @@ protected:
   /* Let's remember if we were empty before we did the compaction. */           \
   bool was_empty = used_region().is_empty();                                    \
   /* Reset space after compaction is complete */                                \
+  /* 将top指针调整到compact_top处 */                                               \
   reset_after_compaction();                                                     \
   /* We do this clear, below, since it has overloaded meanings for some */      \
   /* space subtypes.  For example, OffsetTableContigSpace's that were   */      \

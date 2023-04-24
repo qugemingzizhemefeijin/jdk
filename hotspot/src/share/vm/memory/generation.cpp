@@ -360,6 +360,7 @@ void Generation::safe_object_iterate(ObjectClosure* cl) {
 
 void Generation::prepare_for_compaction(CompactPoint* cp) {
   // Generic implementation, can be specialized
+  // 获取ContiguousSpace类中定义的_the_space属性的值
   CompactibleSpace* space = first_compaction_space();
   while (space != NULL) {
     space->prepare_for_compaction(cp);

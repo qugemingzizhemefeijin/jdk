@@ -113,6 +113,7 @@ protected:
   // Callback from VM_GenCollectFull operation.
   // Perform a full collection of the first max_level+1 generations.
   virtual void do_full_collection(bool clear_all_soft_refs);
+  // 进行一次FullGC
   void do_full_collection(bool clear_all_soft_refs, int max_level);
 
   // Does the "cause" of GC indicate that

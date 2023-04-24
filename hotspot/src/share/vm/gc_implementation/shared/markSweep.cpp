@@ -71,9 +71,11 @@ void MarkSweep::follow_class_loader(ClassLoaderData* cld) {
 }
 
 void MarkSweep::follow_stack() {
+  // 处理_marking_stack和_objarray_stack栈
   do {
     while (!_marking_stack.is_empty()) {
       oop obj = _marking_stack.pop();
+      // 在_marking_stack中的对象一定是被标记的活跃对象
       assert (obj->is_gc_marked(), "p must be marked");
       obj->follow_contents();
     }
@@ -93,7 +95,12 @@ void MarkSweep::FollowStackClosure::do_void() { follow_stack(); }
 // We preserve the mark which should be replaced at the end and the location
 // that it will go.  Note that the object that this markOop belongs to isn't
 // currently at that address but it will be after phase4
+// 保存对象和对应的对象头
 void MarkSweep::preserve_mark(oop obj, markOop mark) {
+  // 如果需要保存原对象头信息的活跃对象数量较少，则使用_preserved_marks数组来保存，超出_preserved_count_max的
+  // 通过_preserved_mark_stack与_preserved_oop_stack栈保存对应关系。大部分情况下通过数组就能完全保存，为了防止出现过多需要保存的信息，
+  // 配合栈来保存，这样数组就不用过大而导致内存空间的浪费。
+
   // We try to store preserved marks in the to space of the new generation since
   // this is storage which should be available.  Most of the time this should be
   // sufficient space for the marks we need to preserve but if it isn't we fall

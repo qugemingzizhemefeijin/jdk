@@ -150,9 +150,12 @@ template <class T> void assert_nothing(T *p) {}
 
 
 void InstanceMirrorKlass::oop_follow_contents(oop obj) {
+  // 标记obj中引用的其他对象
   InstanceKlass::oop_follow_contents(obj);
 
   // Follow the klass field in the mirror.
+  // obj是java.lang.Class对象，获取java.lang.Class对象表示的Klass实例。
+  // 注意，并不是获取表示java.lang.Class类的InstanceMirrorKlass实例
   Klass* klass = java_lang_Class::as_Klass(obj);
   if (klass != NULL) {
     // For anonymous classes we need to handle the class loader data,
@@ -160,12 +163,15 @@ void InstanceMirrorKlass::oop_follow_contents(oop obj) {
     if (klass->oop_is_instance() && InstanceKlass::cast(klass)->is_anonymous()) {
       MarkSweep::follow_class_loader(klass->class_loader_data());
     } else {
+      // 获取加载类的java.lang.ClassLoader对象，标记并压入栈
       MarkSweep::follow_klass(klass);
     }
   } else {
     // If klass is NULL then this a mirror for a primitive type.
     // We don't have to follow them, since they are handled as strong
     // roots in Universe::oops_do.
+    // 如果获取的klass为NULL，则说明当前的java.lang.Class对象表示的是Java的基本类型，
+    // 我们不再需要标记，因为在遍历强根时会调用Universe::oops_do()函数处理。
     assert(java_lang_Class::is_primitive(obj), "Sanity check");
   }
 
