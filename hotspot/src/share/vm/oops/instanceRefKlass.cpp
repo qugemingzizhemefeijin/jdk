@@ -448,7 +448,7 @@ int InstanceRefKlass::oop_update_pointers(ParCompactionManager* cm, oop obj) {
 }
 #endif // INCLUDE_ALL_GCS
 
-//
+// 更新OopMapBlock相关信息
 void InstanceRefKlass::update_nonstatic_oop_maps(Klass* k) {
   // Clear the nonstatic oop-map entries corresponding to referent
   // and nextPending field.  They are treated specially by the
@@ -546,14 +546,17 @@ void InstanceRefKlass::release_and_notify_pending_list_lock(
   // to hold the pending list lock. We want to free this handle.
   HandleMark hm;
 
+  // 上锁
   Handle h_lock(THREAD, java_lang_ref_Reference::pending_list_lock());
   assert(ObjectSynchronizer::current_thread_holds_lock(
            JavaThread::current(), h_lock),
          "Lock should be held");
   // Notify waiters on pending lists lock if there is any reference.
+  // 如果PendingList中含有引用对象，则通知ReferenceHandler线程处理PendingList
   if (java_lang_ref_Reference::pending_list() != NULL) {
     ObjectSynchronizer::notifyall(h_lock, THREAD);
   }
+  // 释放h_lock锁
   ObjectSynchronizer::fast_exit(h_lock(), pending_list_basic_lock, THREAD);
   if (HAS_PENDING_EXCEPTION) CLEAR_PENDING_EXCEPTION;
 }

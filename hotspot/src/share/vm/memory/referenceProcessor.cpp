@@ -1379,11 +1379,18 @@ bool ReferenceProcessor::discover_reference(oop obj, ReferenceType rt) {
     list->set_head(obj);
     list->inc_length(1);
 
+    // 在以上代码中实现了引用查找的策略RefDiscoveryPolicy，引用类型的处理并不简单，因为Reference和referent可能处在不同的代中。
+    // 如果Reference和referent都在年轻代，那么referent会被标记，这样就可以处理Reference。
+    // 如果二者不在一个代中，那么Reference可能无法被处理。
+    // 如果Reference在年轻代，而referent在老年代，老年代不标记referent，此时无法处理Reference；
+    // 如果Reference在老年代，那么referent在年轻代会被标记，但是YGC不处理Reference，因此也无法处理。
+
     if (TraceReferenceGC) {
       gclog_or_tty->print_cr("Discovered reference (" INTPTR_FORMAT ": %s)",
                                 (void *)obj, obj->klass()->internal_name());
     }
   }
+
   assert(obj->is_oop(), "Discovered a bad reference");
   verify_referent(obj);
   return true;
