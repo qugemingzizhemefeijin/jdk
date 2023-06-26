@@ -40,9 +40,12 @@ inline ClassLoaderData* ClassLoaderData::class_loader_data(oop loader) {
 
 
 inline ClassLoaderData *ClassLoaderDataGraph::find_or_create(Handle loader, TRAPS) {
+  // 校验loader必须是一个oop
   assert(loader() != NULL,"Must be a class loader");
   // Gets the class loader data out of the java/lang/ClassLoader object, if non-null
   // it's already in the loader_data, so no need to add
+  // 根据java/lang/ClassLoader对象的地址获取ClassLoaderData的指针，如果不为空说明这个ClassLoader对象
+  // 已经添加到ClassLoaderDataGraph中了，否则需要添加
   ClassLoaderData* loader_data= java_lang_ClassLoader::loader_data(loader());
   if (loader_data) {
      return loader_data;

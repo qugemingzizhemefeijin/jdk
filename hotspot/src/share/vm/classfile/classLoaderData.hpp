@@ -56,13 +56,16 @@ class Metadebug;
 
 // GC root for walking class loader data created
 
+// 相当于ClassLoaderData的一个管理类，方便遍历所有的ClassLoaderData，其定义的属性和方法都是静态的
 class ClassLoaderDataGraph : public AllStatic {
   friend class ClassLoaderData;
   friend class ClassLoaderDataGraphMetaspaceIterator;
   friend class VMStructs;
  private:
   // All CLDs (except the null CLD) can be reached by walking _head->_next->...
+  // 表示当前活跃的ClassLoaderData链表
   static ClassLoaderData* _head;
+  // 表示即将被卸载的ClassLoaderData链表
   static ClassLoaderData* _unloading;
   // CMS support.
   static ClassLoaderData* _saved_head;
@@ -70,7 +73,11 @@ class ClassLoaderDataGraph : public AllStatic {
   static ClassLoaderData* add(Handle class_loader, bool anonymous, TRAPS);
   static void post_class_unload_events(void);
  public:
+  // 用于查找某个java/lang/ClassLoader实例对应的ClassLoaderData，如果不存在则为该实例创建一个新的ClassLoaderData实例并添加到ClassLoaderDataGraph管理的ClassLoaderData链表中。
+  // 注意ClassLoaderData指针的保存位置比较特殊，不是在ClassLoader实例的内存中，而是内存外，内存上方的8字节处。
+  // 为什么这8字节在没有保存ClassLoaderData指针时是NULL了？因为Java对象创建的时候会保证对象间有8字节的空隙。
   static ClassLoaderData* find_or_create(Handle class_loader, TRAPS);
+  // 触发unloading链表中所有ClassLoaderData的内存释放。
   static void purge();
   static void clear_claimed_marks();
   static void oops_do(OopClosure* f, KlassClosure* klass_closure, bool must_claim);
@@ -81,6 +88,7 @@ class ClassLoaderDataGraph : public AllStatic {
   static void loaded_classes_do(KlassClosure* klass_closure);
   static void classes_unloading_do(void f(Klass* const));
   // 找出失效的类加载器，并通过_unloading静态属性保存，多个失效的类加载器会形成一个单链表。
+  // 遍历所有的活跃ClassLoaderData，判断其是否活跃，如果不再活跃则将其从活跃链表中移除，加入到不活跃的ClassLoaderData链表中，并通知该ClassLoaderData加载的所有Klass类加载器被卸载。
   static bool do_unloading(BoolObjectClosure* is_alive);
 
   // CMS support.
@@ -113,6 +121,7 @@ class ClassLoaderDataGraph : public AllStatic {
 class ClassLoaderData : public CHeapObj<mtClass> {
   friend class VMStructs;
  private:
+  // 表示引用此ClassLoaderDat的对象，特殊场景下使用，这些引用对象无法通过GC遍历到
   class Dependencies VALUE_OBJ_CLASS_SPEC {
     objArrayOop _list_head;
     void locked_add(objArrayHandle last,
@@ -133,25 +142,34 @@ class ClassLoaderData : public CHeapObj<mtClass> {
   friend class MetaDataFactory;
   friend class Method;
 
+  // 启动类加载器对应的ClassLoaderData
   static ClassLoaderData * _the_null_class_loader_data;
 
+  // 关联的Java ClassLoader实例
   oop _class_loader;          // oop used to uniquely identify a class loader
                               // class loader or a canonical class path
+  // 依赖
   Dependencies _dependencies; // holds dependencies from this class loader
                               // data to others.
 
   // 类加载器对应的Metaspace实例
   Metaspace * _metaspace;  // Meta-space where meta-data defined by the
-                           // classes in the class loader are allocated.
+  // 分配内存的锁
   Mutex* _metaspace_lock;  // Locks the metaspace for allocations and setup.
+
+  // 为true，表示被卸载了
   bool _unloading;         // true if this class loader goes away
+  // 为true，表示ClassLoaderData是活跃的但是没有关联的活跃对象，比如匿名类的类加载器和启动类加载器实例，为true则不能被GC回收掉
   bool _keep_alive;        // if this CLD can be unloaded for anonymous loaders
+  // 为true，表示ClassLoaderData主要加载匿名类
   bool _is_anonymous;      // if this CLD is for an anonymous class
+  // 用来标记该ClassLoaderData已经被遍历过了
   volatile int _claimed;   // true if claimed, for example during GC traces.
                            // To avoid applying oop closure more than once.
                            // Has to be an int because we cas it.
+  // 该ClassLoaderData加载的所有Klass
   Klass* _klasses;         // The classes defined by the class loader.
-
+  // 保存所有常量池的引用
   JNIHandleBlock* _handles; // Handles to constant pool arrays
 
   // These method IDs are created for the class loader and set to NULL when the
@@ -161,14 +179,18 @@ class ClassLoaderData : public CHeapObj<mtClass> {
 
   // Metadata to be deallocated when it's safe at class unloading, when
   // this class loader isn't unloaded itself.
+  // 需要被释放的从 Metaspace 中分配的内存
   GrowableArray<Metadata*>*      _deallocate_list;
 
   // Support for walking class loader data objects
+  // 下一个ClassLoaderData
   ClassLoaderData* _next; /// Next loader_datas created
 
   // ReadOnly and ReadWrite metaspaces (static because only on the null
   // class loader for now).
+  // 启动类加载器使用的只读的Metaspace，DumpSharedSpaces为true时使用
   static Metaspace* _ro_metaspace;
+  // 启动类加载器使用的可读写的Metaspace，DumpSharedSpaces为true时使用
   static Metaspace* _rw_metaspace;
 
   void set_next(ClassLoaderData* next) { _next = next; }
@@ -198,6 +220,7 @@ class ClassLoaderData : public CHeapObj<mtClass> {
   void classes_do(void f(InstanceKlass*));
 
   // Deallocate free list during class unloading.
+  // 类加载器被卸载时调用来释放deallocate_list中的元数据
   void free_deallocate_list();
 
   // Allocate out of this class loader data
@@ -218,9 +241,11 @@ class ClassLoaderData : public CHeapObj<mtClass> {
     assert(ClassLoaderDataGraph::_head == NULL, "cannot initialize twice");
 
     // We explicitly initialize the Dependencies object at a later phase in the initialization
+    // 初始化 _the_null_class_loader_data
     _the_null_class_loader_data = new ClassLoaderData((oop)NULL, false, Dependencies());
     ClassLoaderDataGraph::_head = _the_null_class_loader_data;
     assert(_the_null_class_loader_data->is_the_null_class_loader_data(), "Must be");
+    // DumpSharedSpaces默认为false
     if (DumpSharedSpaces) {
       _the_null_class_loader_data->initialize_shared_metaspaces();
     }
@@ -266,11 +291,18 @@ class ClassLoaderData : public CHeapObj<mtClass> {
   const char* loader_name();
 
   jobject add_handle(Handle h);
+
+  // 用于将已经完成类加载的类对应的Klass加入到ClassLoaderData管理的Klass链表中
   void add_class(Klass* k);
+
+  // 用于类卸载的时候将Klass从ClassLoaderData管理的Klass链表中移除
   void remove_class(Klass* k);
+
+  // 记录引用了当前ClassLoaderData的Klass，这些Klass不能通过正常的GC遍历方式找到
   void record_dependency(Klass* to, TRAPS);
   void init_dependencies(TRAPS);
 
+  // 用于临时保存需要被释放的Klass，Method等元数据的指针，因为这些元数据可能依然被使用，所以不能立即释放，只能等到类加载器被卸载了才释放。
   void add_to_deallocate_list(Metadata* m);
 
   static ClassLoaderData* class_loader_data(oop loader);

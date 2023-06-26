@@ -90,6 +90,7 @@ void ClassLoaderData::init_dependencies(TRAPS) {
 void ClassLoaderData::Dependencies::init(TRAPS) {
   // Create empty dependencies array to add to. CMS requires this to be
   // an oop so that it can track additions via card marks.  We think.
+  // 创建一个长度为2的Ojbect数组
   _list_head = oopFactory::new_objectArray(2, CHECK);
 }
 
@@ -150,6 +151,7 @@ void ClassLoaderData::loaded_classes_do(KlassClosure* klass_closure) {
 }
 
 void ClassLoaderData::classes_do(void f(InstanceKlass*)) {
+  // 遍历所有加载的类
   for (Klass* k = _klasses; k != NULL; k = k->next_link()) {
     if (k->oop_is_instance()) {
       f(InstanceKlass::cast(k));
@@ -164,11 +166,13 @@ void ClassLoaderData::record_dependency(Klass* k, TRAPS) {
 
   // Dependency to the null class loader data doesn't need to be recorded
   // because the null class loader data never goes away.
+  // 启动类加载器不会被销毁，所以不需要记录引用该加载器的Klass
   if (to_cld->is_the_null_class_loader_data()) {
     return;
   }
 
   oop to;
+  // 非匿名类加载器下，如果当前类加载器是目标类的类加载器的父类加载器，则不需要添加
   if (to_cld->is_anonymous()) {
     // Anonymous class dependencies are through the mirror.
     to = k->java_mirror();
@@ -193,6 +197,7 @@ void ClassLoaderData::record_dependency(Klass* k, TRAPS) {
 
   // It's a dependency we won't find through GC, add it. This is relatively rare
   // Must handle over GC point.
+  // 这种引用关系不能用过正常的GC遍历到，所以通过dependency的方式单独保存
   Handle dependency(THREAD, to);
   from_cld->_dependencies.add(dependency, CHECK);
 }
@@ -203,12 +208,15 @@ void ClassLoaderData::Dependencies::add(Handle dependency, TRAPS) {
   // Save a pointer to the last to add to under the lock.
   objArrayOop ok = _list_head;
   objArrayOop last = NULL;
+  // 不断遍历，如果已经在列表中则返回
   while (ok != NULL) {
     last = ok;
+    // 第一个元素是obj
     if (ok->obj_at(0) == dependency()) {
       // Don't need to add it
       return;
     }
+    // 第二个元素是一个obj数组
     ok = (objArrayOop)ok->obj_at(1);
   }
 
@@ -217,6 +225,7 @@ void ClassLoaderData::Dependencies::add(Handle dependency, TRAPS) {
   objArrayHandle last_handle(THREAD, last);
 
   // Create a new dependency node with fields for (class_loader or mirror, next)
+  // 创建一个新的数组，将目标dependency放到索引为0的位置
   objArrayOop deps = oopFactory::new_objectArray(2, CHECK);
   deps->obj_at_put(0, dependency());
 
@@ -234,6 +243,8 @@ void ClassLoaderData::Dependencies::locked_add(objArrayHandle last_handle,
   // Have to lock and put the new dependency on the end of the dependency
   // array so the card mark for CMS sees that this dependency is new.
   // Can probably do this lock free with some effort.
+  // 必须锁定并将新的依赖项放在依赖项数组的末尾，以便 CMS 的卡标记看到此依赖项是新的。可能可以通过一些努力来释放此锁定。
+  // 获取对象锁，从而安全的添加新的依赖Obj
   ObjectLocker ol(Handle(THREAD, _list_head), THREAD);
 
   oop loader_or_mirror = new_dependency->obj_at(0);
@@ -244,6 +255,7 @@ void ClassLoaderData::Dependencies::locked_add(objArrayHandle last_handle,
   while (end != NULL) {
     last = end;
     // check again if another thread added it to the end.
+    // 再检查一遍，可能其他线程已经完成添加了
     if (end->obj_at(0) == loader_or_mirror) {
       // Don't need to add it
       return;
@@ -252,6 +264,7 @@ void ClassLoaderData::Dependencies::locked_add(objArrayHandle last_handle,
   }
   assert (last != NULL, "dependencies should be initialized");
   // fill in the first element with the oop in new_dependency.
+  // 如果last本身是一个空数组则添加到索引为0的位置，否则放到索引为1的位置
   if (last->obj_at(0) == NULL) {
     last->obj_at_put(0, new_dependency->obj_at(0));
   } else {
@@ -267,6 +280,7 @@ void ClassLoaderDataGraph::clear_claimed_marks() {
 
 void ClassLoaderData::add_class(Klass* k) {
   MutexLockerEx ml(metaspace_lock(),  Mutex::_no_safepoint_check_flag);
+  // 加入到链表的头部
   Klass* old_value = _klasses;
   k->set_next_link(old_value);
   // link the new item into the list
@@ -290,11 +304,14 @@ void ClassLoaderData::add_class(Klass* k) {
 void ClassLoaderData::remove_class(Klass* scratch_class) {
   MutexLockerEx ml(metaspace_lock(),  Mutex::_no_safepoint_check_flag);
   Klass* prev = NULL;
+  // 遍历所有的Klass，找到待删除的Klass，然后从链表中移除
   for (Klass* k = _klasses; k != NULL; k = k->next_link()) {
     if (k == scratch_class) {
       if (prev == NULL) {
+        // 待删除的类位于链表头部
         _klasses = k->next_link();
       } else {
+        // 待删除的类位于链表中间
         Klass* next = k->next_link();
         prev->set_next_link(next);
       }
@@ -338,12 +355,13 @@ bool ClassLoaderData::is_alive(BoolObjectClosure* is_alive_closure) const {
 
 ClassLoaderData::~ClassLoaderData() {
   // Release C heap structures for all the classes.
+  // 遍历该ClassLoader加载的所有Klass，执行release_C_heap_structures方法
   classes_do(InstanceKlass::release_C_heap_structures);
 
   Metaspace *m = _metaspace;
   if (m != NULL) {
     _metaspace = NULL;
-    // release the metaspace
+    // release the metaspace // 释放Metaspace
     delete m;
     // release the handles
     if (_handles != NULL) {
@@ -359,9 +377,10 @@ ClassLoaderData::~ClassLoaderData() {
   // they're "invalid" but existing programs likely rely on their being
   // NULL after class unloading.
   if (_jmethod_ids != NULL) {
+    // 释放_jmethod_ids
     Method::clear_jmethod_ids(this);
   }
-  // Delete lock
+  // Delete lock // 删除 lock
   delete _metaspace_lock;
 
   // Delete free list
@@ -377,6 +396,7 @@ bool ClassLoaderData::is_ext_class_loader_data() const {
   return SystemDictionary::is_ext_class_loader(class_loader());
 }
 
+// 返回ClassLoaderData的_metaspace属性，如果未初始化则会完成该属性初始化。
 Metaspace* ClassLoaderData::metaspace_non_null() {
   assert(!DumpSharedSpaces, "wrong metaspace!");
   // If the metaspace has not been allocated, create a new one.  Might want
@@ -384,28 +404,30 @@ Metaspace* ClassLoaderData::metaspace_non_null() {
   // The reason for the delayed allocation is because some class loaders are
   // simply for delegating with no metadata of their own.
   // _metaspace double check.
+  // 延迟初始化，因为部分ClassLoader并不会加载类，也就不需要从Metaspace分配空间
   if (_metaspace == NULL) {
     // 加锁
     MutexLockerEx ml(metaspace_lock(),  Mutex::_no_safepoint_check_flag);
     // Check again if metaspace has been allocated while we were getting this lock.
+    // 重新检查，可能其他线程已经完成初始化
     if (_metaspace != NULL) {
       return _metaspace;
     }
     // 这里可以看出四种不同的Metaspace的创建。
-    if (this == the_null_class_loader_data()) {
+    if (this == the_null_class_loader_data()) { // 如果是启动类加载器
       assert (class_loader() == NULL, "Must be");
       set_metaspace(new Metaspace(_metaspace_lock, Metaspace::BootMetaspaceType));
-    } else if (is_anonymous()) {
+    } else if (is_anonymous()) { // 如果是匿名类类加载器
       if (TraceClassLoaderData && Verbose && class_loader() != NULL) {
         tty->print_cr("is_anonymous: %s", class_loader()->klass()->internal_name());
       }
       set_metaspace(new Metaspace(_metaspace_lock, Metaspace::AnonymousMetaspaceType));
-    } else if (class_loader()->is_a(SystemDictionary::reflect_DelegatingClassLoader_klass())) {
+    } else if (class_loader()->is_a(SystemDictionary::reflect_DelegatingClassLoader_klass())) { // 如果是sun_reflect_DelegatingClassLoader类加载器
       if (TraceClassLoaderData && Verbose && class_loader() != NULL) {
         tty->print_cr("is_reflection: %s", class_loader()->klass()->internal_name());
       }
       set_metaspace(new Metaspace(_metaspace_lock, Metaspace::ReflectionMetaspaceType));
-    } else {
+    } else { // 如果是普通的类加载器
       set_metaspace(new Metaspace(_metaspace_lock, Metaspace::StandardMetaspaceType));
     }
   }
@@ -427,11 +449,15 @@ jobject ClassLoaderData::add_handle(Handle h) {
 // class unloading because Handles might point to this metadata field.
 void ClassLoaderData::add_to_deallocate_list(Metadata* m) {
   // Metadata in shared region isn't deleted.
+  // 共享的元数据不能被删除
   if (!m->is_shared()) {
+    // 获取锁
     MutexLockerEx ml(metaspace_lock(),  Mutex::_no_safepoint_check_flag);
     if (_deallocate_list == NULL) {
+      // 初始化_deallocate_list
       _deallocate_list = new (ResourceObj::C_HEAP, mtClass) GrowableArray<Metadata*>(100, true);
     }
+    // 添加到列表中
     _deallocate_list->append_if_missing(m);
   }
 }
@@ -439,6 +465,7 @@ void ClassLoaderData::add_to_deallocate_list(Metadata* m) {
 // Deallocate free metadata on the free list.  How useful the PermGen was!
 void ClassLoaderData::free_deallocate_list() {
   // Don't need lock, at safepoint
+  // 该方法只能在安全点的时候调用
   assert(SafepointSynchronize::is_at_safepoint(), "only called at safepoint");
   if (_deallocate_list == NULL) {
     return;
@@ -446,10 +473,13 @@ void ClassLoaderData::free_deallocate_list() {
   // Go backwards because this removes entries that are freed.
   for (int i = _deallocate_list->length() - 1; i >= 0; i--) {
     Metadata* m = _deallocate_list->at(i);
+    // Metadata不在栈上，即不再被使用
     if (!m->on_stack()) {
+      // 从链表中移除
       _deallocate_list->remove_at(i);
       // There are only three types of metadata that we deallocate directly.
       // Cast them so they can be used by the template function.
+      // 根据Metadata的类型分别释放
       if (m->is_method()) {
         MetadataFactory::free_metadata(this, (Method*)m);
       } else if (m->is_constantPool()) {
@@ -540,23 +570,27 @@ ClassLoaderData* ClassLoaderDataGraph::_saved_head = NULL;
 
 // Add a new class loader data node to the list.  Assign the newly created
 // ClassLoaderData into the java/lang/ClassLoader object as a hidden field
+// 创建一个新的ClassLoaderData实例，然后将其作为java/lang/ClassLoader的隐藏属性保存在ClassLoader实例中
 ClassLoaderData* ClassLoaderDataGraph::add(Handle loader, bool is_anonymous, TRAPS) {
   // We need to allocate all the oops for the ClassLoaderData before allocating the
   // actual ClassLoaderData object.
   ClassLoaderData::Dependencies dependencies(CHECK_NULL);
-
+  // 通过No_Safepoint_Verifier的构造方法校验当前不在安全点上，没有进行GC
   No_Safepoint_Verifier no_safepoints; // we mustn't GC until we've installed the
                                        // ClassLoaderData in the graph since the CLD
                                        // contains unhandled oops
 
   ClassLoaderData* cld = new ClassLoaderData(loader, is_anonymous, dependencies);
 
-
+  // 如果不是匿名类
   if (!is_anonymous) {
+    // 获取相对ClassLoader地址偏移为-1的地址，即在ClassLoader实例内存上方的8字节
     ClassLoaderData** cld_addr = java_lang_ClassLoader::loader_data_addr(loader());
     // First, Atomically set it
+    // 将ClassLoaderData的地址原子的保存进去
     ClassLoaderData* old = (ClassLoaderData*) Atomic::cmpxchg_ptr(cld, cld_addr, NULL);
     if (old != NULL) {
+      // 不等于NULL说明有其他线程完成了保存动作，因此将创建的ClassLoaderData释放掉，返回其他线程已经保存的ClassLoaderData
       delete cld;
       // Returns the data.
       return old;
@@ -565,13 +599,16 @@ ClassLoaderData* ClassLoaderDataGraph::add(Handle loader, bool is_anonymous, TRA
 
   // We won the race, and therefore the task of adding the data to the list of
   // class loader data
+  //设置成功，将新创建的ClassLoaderData加入到链表中
   ClassLoaderData** list_head = &_head;
   ClassLoaderData* next = _head;
 
   do {
     cld->set_next(next);
+    // 原子的修改链表头，如果因为并发修改失败则不断重试
     ClassLoaderData* exchanged = (ClassLoaderData*)Atomic::cmpxchg_ptr(cld, list_head, next);
     if (exchanged == next) {
+      // 修改成功
       if (TraceClassLoaderData) {
         ResourceMark rm;
         tty->print("[ClassLoaderData: ");
@@ -582,6 +619,7 @@ ClassLoaderData* ClassLoaderDataGraph::add(Handle loader, bool is_anonymous, TRA
       }
       return cld;
     }
+    // 链表头被其他线程修改了，重置next
     next = exchanged;
   } while (true);
 
@@ -710,11 +748,13 @@ bool ClassLoaderDataGraph::contains_loader_data(ClassLoaderData* loader_data) {
 bool ClassLoaderDataGraph::do_unloading(BoolObjectClosure* is_alive_closure) {
   ClassLoaderData* data = _head;
   ClassLoaderData* prev = NULL;
+  // seen_dead_loader表示找到了需要卸载的ClassLoaderData
   bool seen_dead_loader = false;
   // mark metadata seen on the stack and code cache so we can delete
   // unneeded entries.
   bool has_redefined_a_class = JvmtiExport::has_redefined_a_class();
   MetadataOnStackMark md_on_stack;
+  // 从_head开始遍历
   while (data != NULL) {
     // 如果类加载器已经明确存活，或者调用ClassLoaderData::is_alive()函数返回true，那么这个类加载器不会卸载。
     if (data->keep_alive() || data->is_alive(is_alive_closure)) {
@@ -726,9 +766,12 @@ bool ClassLoaderDataGraph::do_unloading(BoolObjectClosure* is_alive_closure) {
       data = data->next();
       continue;
     }
+    // 需要被垃圾回收
     seen_dead_loader = true;
     ClassLoaderData* dead = data;
+    // 执行ClassLoaderData卸载
     dead->unload();
+    // 将其从活跃链表中移除
     data = data->next();
     // Remove from loader list.
     // This class loader data will no longer be found
@@ -740,11 +783,13 @@ bool ClassLoaderDataGraph::do_unloading(BoolObjectClosure* is_alive_closure) {
       assert(dead == _head, "sanity check");
       _head = data;
     }
+    // 将其加入到待卸载链表中
     dead->set_next(_unloading);
     _unloading = dead;
   } // 结束while循环
 
   if (seen_dead_loader) {
+    // 遍历所有_unloading中的ClassLoaderData，发布类卸载事件
     post_class_unload_events();
   }
 
@@ -755,11 +800,14 @@ void ClassLoaderDataGraph::purge() {
   ClassLoaderData* list = _unloading;
   _unloading = NULL;
   ClassLoaderData* next = list;
+  // 遍历待释放的ClassLoaderData列表
   while (next != NULL) {
     ClassLoaderData* purge_me = next;
     next = purge_me->next();
+    // 删除ClassLoaderData，调用其析构方法
     delete purge_me;
   }
+  // 释放Metaspace中所有空闲的VirtualSpaceNode
   Metaspace::purge();
 }
 

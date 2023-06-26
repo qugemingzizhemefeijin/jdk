@@ -1733,6 +1733,7 @@ class JNIMethodBlock : public CHeapObj<mtClass> {
   }
 
   Method** add_method(Method* m) {
+    // 如果未分配完
     if (_top < number_of_methods) {
       // top points to the next free entry.
       int i = _top;
@@ -1741,8 +1742,10 @@ class JNIMethodBlock : public CHeapObj<mtClass> {
       return &_methods[i];
     } else if (_top == number_of_methods) {
       // if the next free entry ran off the block see if there's a free entry
+      // 如果已分配完，判断是否存在空闲的元素
       for (int i = 0; i< number_of_methods; i++) {
         if (_methods[i] == _free_method) {
+          // 使用空闲的元素分配
           _methods[i] = m;
           return &_methods[i];
         }
@@ -1752,9 +1755,11 @@ class JNIMethodBlock : public CHeapObj<mtClass> {
       _top++;
     }
     // need to allocate a next block.
+    // 没有空闲的，需要分配一个新的JNIMethodBlock
     if (_next == NULL) {
       _next = new JNIMethodBlock();
     }
+    // 使用next添加新的Method
     return _next->add_method(m);
   }
 
