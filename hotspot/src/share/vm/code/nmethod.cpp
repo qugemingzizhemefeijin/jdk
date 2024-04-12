@@ -579,10 +579,13 @@ nmethod* nmethod::new_nmethod(methodHandle method,
 )
 {
   assert(debug_info->oop_recorder() == code_buffer->oop_recorder(), "shared OR");
+  // 找到code_buffer中的所有的oop，为其分配Handler
   code_buffer->finalize_oop_references(method);
   // create nmethod
   nmethod* nm = NULL;
+  // 获取锁CodeCache_lock
   { MutexLockerEx mu(CodeCache_lock, Mutex::_no_safepoint_check_flag);
+    // 计算nmethod的大小
     int nmethod_size =
       allocation_size(code_buffer, sizeof(nmethod))
       + adjust_pcs_size(debug_info->pcs_size())
@@ -590,7 +593,7 @@ nmethod* nmethod::new_nmethod(methodHandle method,
       + round_to(handler_table->size_in_bytes(), oopSize)
       + round_to(nul_chk_table->size_in_bytes(), oopSize)
       + round_to(debug_info->data_size()       , oopSize);
-
+    // 从CodeCache中分配内存，分配完成调用下面的nmethod完成初始化
     nm = new (nmethod_size)
     nmethod(method(), nmethod_size, compile_id, entry_bci, offsets,
             orig_pc_offset, debug_info, dependencies, code_buffer, frame_size,
@@ -609,6 +612,7 @@ nmethod* nmethod::new_nmethod(methodHandle method,
       // check every nmethod for dependencies which makes it linear in
       // the number of methods compiled.  For applications with a lot
       // classes the slow way is too slow.
+      // 记录此方法依赖的klass，deoptimization使用
       for (Dependencies::DepStream deps(nm); deps.next(); ) {
         Klass* klass = deps.context_type();
         if (klass == NULL) {
@@ -652,9 +656,11 @@ nmethod::nmethod(
 {
   {
     debug_only(No_Safepoint_Verifier nsv;)
+    // 确保已经获取锁CodeCache_lock
     assert_locked_or_safepoint(CodeCache_lock);
-
+    // 部分属性初始化成默认值
     init_defaults();
+    // 初始化其他属性
     _method                  = method;
     _entry_bci               = InvocationEntryBci;
     // We have no exception handler or deopt handler make the
@@ -664,6 +670,7 @@ nmethod::nmethod(
     _deoptimize_mh_offset    = 0;
     _orig_pc_offset          = 0;
 
+    // 计算各部分偏移量
     _consts_offset           = data_offset();
     _stub_offset             = data_offset();
     _oops_offset             = data_offset();
@@ -682,13 +689,15 @@ nmethod::nmethod(
     _exception_cache         = NULL;
     _pc_desc_cache.reset_to(NULL);
     _hotness_counter         = NMethodSweeper::hotness_counter_reset_val();
-
+    // 将code_buffer中的oop_recoder等复制到nmethod中
     code_buffer->copy_values_to(this);
     if (ScavengeRootsInCode && detect_scavenge_root_oops()) {
       CodeCache::add_scavenge_root_nmethod(this);
+      // 注册该本地方法
       Universe::heap()->register_nmethod(this);
     }
     debug_only(verify_scavenge_root_oops());
+    // 表示分配完成
     CodeCache::commit(this);
   }
 

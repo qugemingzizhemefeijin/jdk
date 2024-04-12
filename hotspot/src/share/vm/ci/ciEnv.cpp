@@ -89,9 +89,11 @@ ciEnv::ciEnv(CompileTask* task, int system_dictionary_modification_counter) {
   VM_ENTRY_MARK;
 
   // Set up ciEnv::current immediately, for the sake of ciObjectFactory, etc.
+  // 将当前ciEnv实例设置为当前线程的激活ciEnv
   thread->set_env(this);
   assert(ciEnv::current() == this, "sanity");
 
+  // 属性的初始化
   _oop_recorder = NULL;
   _debug_info = NULL;
   _dependencies = NULL;
@@ -114,6 +116,7 @@ ciEnv::ciEnv(CompileTask* task, int system_dictionary_modification_counter) {
   _name_buffer_len = 0;
 
   _arena   = &_ciEnv_arena;
+  // 通过_arena初始化ciObjectFactory
   _factory = new (_arena) ciObjectFactory(_arena, 128);
 
   // Preload commonly referenced system ciObjects.
@@ -122,6 +125,7 @@ ciEnv::ciEnv(CompileTask* task, int system_dictionary_modification_counter) {
   // Assertions ensure that these instances are not accessed before
   // their initialization.
 
+  // 校验Universe类是否完成初始化，并从Universe中获取相关异常类的实例指针
   assert(Universe::is_fully_initialized(), "should be complete");
 
   oop o = Universe::null_ptr_exception_instance();
@@ -190,9 +194,11 @@ ciEnv::ciEnv(Arena* arena) {
 
 ciEnv::~ciEnv() {
   CompilerThread* current_thread = CompilerThread::current();
+  // 减少refcount，当ciEnv销毁时，实际保存_factory创建的ciBaseObject实例的_ciEnv_arena会自动销毁
   _factory->remove_symbols();
   // Need safepoint to clear the env on the thread.  RedefineClasses might
   // be reading it.
+  // 清除当前线程的ciEnv引用
   GUARDED_VM_ENTRY(current_thread->set_env(NULL);)
 }
 
@@ -914,6 +920,8 @@ void ciEnv::validate_compile_task_dependencies(ciMethod* target) {
 
 // ------------------------------------------------------------------
 // ciEnv::register_method
+// 用于将编译结果保存到一个nmethod中，如果是非栈上替换方法则将其安装到被编译方法上确保可以立即执行编译后的本地代码，
+// 如果是栈上替换方法则将其插入到InstanceKlass保存的osr_nmethods栈上替换方法链表中。
 void ciEnv::register_method(ciMethod* target,
                             int entry_bci,
                             CodeOffsets* offsets,
@@ -931,15 +939,19 @@ void ciEnv::register_method(ciMethod* target,
   nmethod* nm = NULL;
   {
     // To prevent compile queue updates.
+    // 获取锁MethodCompileQueue_lock，注意此时的线程都是CompilerThread::current()
     MutexLocker locker(MethodCompileQueue_lock, THREAD);
 
     // Prevent SystemDictionary::add_to_hierarchy from running
     // and invalidating our dependencies until we install this method.
     // No safepoints are allowed. Otherwise, class redefinition can occur in between.
+    // 获取锁Compile_lock，避免并发执行SystemDictionary::add_to_hierarchy，直到目标方法的编译结果已经安装完成
+    // 也不允许任何safepoints，否则有可能发生类的重定义
     MutexLocker ml(Compile_lock);
     No_Safepoint_Verifier nsv;
 
     // Change in Jvmti state may invalidate compilation.
+    // 校验JVMTI的状态
     if (!failing() &&
         ( (!jvmti_can_hotswap_or_post_breakpoint() &&
            JvmtiExport::can_hotswap_or_post_breakpoint()) ||
@@ -951,6 +963,7 @@ void ciEnv::register_method(ciMethod* target,
     }
 
     // Change in DTrace flags may invalidate compilation.
+    // 校验Dtrace的相关标签
     if (!failing() &&
         ( (!dtrace_extended_probes() && ExtendedDTraceProbes) ||
           (!dtrace_method_probes() && DTraceMethodProbes) ||
@@ -961,35 +974,42 @@ void ciEnv::register_method(ciMethod* target,
     if (!failing()) {
       if (log() != NULL) {
         // Log the dependencies which this compilation declares.
+        // 打印被编译方法的所有依赖项
         dependencies()->log_all_dependencies();
       }
 
       // Encode the dependencies now, so we can check them right away.
+      // 将这些依赖项进行编码，保存到Dependencies的_content_bytes属性
       dependencies()->encode_content_bytes();
 
       // Check for {class loads, evolution, breakpoints, ...} during compilation
+      // 校验被编译方法的依赖项，调用地址等在方法编译期间是否改变导致编译无效，如果校验失败通过record_failure方法记录失败原因
       validate_compile_task_dependencies(target);
     }
 
     methodHandle method(THREAD, target->get_Method());
-
+    // 如果编译失败
     if (failing()) {
       // While not a true deoptimization, it is a preemptive decompile.
       MethodData* mdo = method()->method_data();
       if (mdo != NULL) {
+        // 增加编译失败计数
         mdo->inc_decompile_count();
       }
 
       // All buffers in the CodeBuffer are allocated in the CodeCache.
       // If the code buffer is created on each compile attempt
       // as in C2, then it must be freed.
+      // 释放保存编译结果的code_buffer
       code_buffer->free_blob();
       return;
     }
 
+    // 校验编译结果中必须有deopt和exception handler
     assert(offsets->value(CodeOffsets::Deopt) != -1, "must have deopt entry");
     assert(offsets->value(CodeOffsets::Exceptions) != -1, "must have exception entry");
 
+    // 将编译结果写入一个新的nmethod
     nm =  nmethod::new_nmethod(method,
                                compile_id(),
                                entry_bci,
@@ -1001,28 +1021,38 @@ void ciEnv::register_method(ciMethod* target,
                                compiler, comp_level);
 
     // Free codeBlobs
+    // 因为创建nmethod时会将code_buffer中的内容复制到nmethod中，所以这里就释放code_buffer
     code_buffer->free_blob();
 
+    // 如果nmethod创建成功
     if (nm != NULL) {
+      // 设置nmethod属性
       nm->set_has_unsafe_access(has_unsafe_access);
       nm->set_has_wide_vectors(has_wide_vectors);
 
       // Record successful registration.
       // (Put nm into the task handle *before* publishing to the Java heap.)
+      // 给CompileTask打标编译完成
       if (task() != NULL) {
         task()->set_code(nm);
       }
 
+      // 如果是非栈上替换
       if (entry_bci == InvocationEntryBci) {
+        // 如果是分层编译
         if (TieredCompilation) {
           // If there is an old version we're done with it
+          // 如果有一个低层次优化的nmethod
           nmethod* old = method->code();
           if (TraceMethodReplacement && old != NULL) {
             ResourceMark rm;
+            // 获取方法名
             char *method_name = method->name_and_sig_as_C_string();
+            // 打印替换日志
             tty->print_cr("Replacing method %s", method_name);
           }
           if (old != NULL) {
+            // 改变老的nmethod的状态，将其标记为旧版本
             old->make_not_entrant();
           }
         }
@@ -1030,13 +1060,16 @@ void ciEnv::register_method(ciMethod* target,
           ResourceMark rm;
           char *method_name = method->name_and_sig_as_C_string();
           ttyLocker ttyl;
+          // 打印nmethod安装日志
           tty->print_cr("Installing method (%d) %s ",
                         comp_level,
                         method_name);
         }
         // Allow the code to be executed
+        // nmethod安装到Method上，安装完成可以立即执行
         method->set_code(method, nm);
       } else {
+        // 如果是栈上替换
         if (TraceNMethodInstalls) {
           ResourceMark rm;
           char *method_name = method->name_and_sig_as_C_string();
@@ -1046,6 +1079,7 @@ void ciEnv::register_method(ciMethod* target,
                         method_name,
                         entry_bci);
         }
+        // 将其添加到Klass的osr_nmethods链表上
         method->method_holder()->add_osr_nmethod(nm);
       }
     }
@@ -1053,10 +1087,12 @@ void ciEnv::register_method(ciMethod* target,
 
   if (nm != NULL) {
     // JVMTI -- compiled method notification (must be done outside lock)
+    // 发布方法编译完成事件
     nm->post_compiled_method_load_event();
   } else {
     // The CodeCache is full. Print out warning and disable compilation.
     record_failure("code cache is full");
+    // 编译失败，处理CodeCache已满
     CompileBroker::handle_full_code_cache();
   }
 }

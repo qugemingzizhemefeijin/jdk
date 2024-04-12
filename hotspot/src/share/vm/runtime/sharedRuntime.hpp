@@ -599,6 +599,11 @@ class SharedRuntime: AllStatic {
 // used by the adapters.  The code generation happens here because it's very
 // similar to what the adapters have to do.
 
+// 表示一个栈帧转换的适配器，因为解释器做字节码解释执行时的栈帧结构和寄存器的使用与编译后的本地代码执行时的栈帧结构不同，
+// 需要在字节码解释执行和本地代码执行两者之间切换时对栈帧和寄存器等做必要的转换处理。
+// 其切换有两个方向，从字节码解释执行切换到本地代码执行（即I2C）以及从本地代码执行切换到字节码解释执行（即C2I）。
+
+// AdapterHandlerEntry本身很简单，只是一个保存I2C和C2I适配器地址的容器而已。
 class AdapterHandlerEntry : public BasicHashtableEntry<mtCode> {
   friend class AdapterHandlerTable;
 
@@ -659,11 +664,12 @@ class AdapterHandlerEntry : public BasicHashtableEntry<mtCode> {
   void print_adapter_on(outputStream* st) const;
 };
 
+// 用来生成AdapterHandlerEntry的一个工具类
 class AdapterHandlerLibrary: public AllStatic {
  private:
-  static BufferBlob* _buffer; // the temporary code buffer in CodeCache
-  static AdapterHandlerTable* _adapters;
-  static AdapterHandlerEntry* _abstract_method_handler;
+  static BufferBlob* _buffer; // the temporary code buffer in CodeCache     // 保存转换的代码
+  static AdapterHandlerTable* _adapters;                                    // 保存 AdapterHandlerEntry和AdapterFingerPrints之间对应关系的map
+  static AdapterHandlerEntry* _abstract_method_handler;                     // 抽象方法对应的AdapterHandlerEntry
   static BufferBlob* buffer_blob();
   static void initialize();
 

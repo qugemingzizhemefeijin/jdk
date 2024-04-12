@@ -2814,24 +2814,33 @@ void InstanceKlass::adjust_default_methods(Method** old_methods, Method** new_me
 #endif // INCLUDE_JVMTI
 
 // On-stack replacement stuff
+// 用于将需要执行栈上替换的nmethod实例插入到InstanceKlass的osr_nmethods链表上
 void InstanceKlass::add_osr_nmethod(nmethod* n) {
   // only one compilation can be active
   NEEDS_CLEANUP
   // This is a short non-blocking critical region, so the no safepoint check is ok.
+  // 获取锁
   OsrList_lock->lock_without_safepoint_check();
+  // 校验必须是栈上替换方法
   assert(n->is_osr_method(), "wrong kind of nmethod");
+  // 将_osr_nmethods_head设置成n的下一个方法
   n->set_osr_link(osr_nmethods_head());
+  // 将n设置为_osr_nmethods_head
   set_osr_nmethods_head(n);
   // Raise the highest osr level if necessary
+  // 如果使用分层编译
   if (TieredCompilation) {
     Method* m = n->method();
+    // 更新最高编译级别
     m->set_highest_osr_comp_level(MAX2(m->highest_osr_comp_level(), n->comp_level()));
   }
   // Remember to unlock again
+  // 解锁
   OsrList_lock->unlock();
 
   // Get rid of the osr methods for the same bci that have lower levels.
   if (TieredCompilation) {
+    // 查找所有低于nmethod的编译级别的属于同一方法的nmethod实例，将其从osr_nmethods链表上移除
     for (int l = CompLevel_limited_profile; l < n->comp_level(); l++) {
       nmethod *inv = lookup_osr_nmethod(n->method(), n->osr_entry_bci(), l, true);
       if (inv != NULL && inv->is_in_use()) {
@@ -2841,16 +2850,21 @@ void InstanceKlass::add_osr_nmethod(nmethod* n) {
   }
 }
 
-
+// 用于从osr_nmethod链表上移除nmethod
+// 当nmethod被标记成not_entrant或者zombie时，或者执行CodeCache垃圾回收时会调用该方法
 void InstanceKlass::remove_osr_nmethod(nmethod* n) {
   // This is a short non-blocking critical region, so the no safepoint check is ok.
+  // 获取锁
   OsrList_lock->lock_without_safepoint_check();
+  // 校验是否栈上替换方法
   assert(n->is_osr_method(), "wrong kind of nmethod");
   nmethod* last = NULL;
+  // 获取osr_nmethods链表的头元素
   nmethod* cur  = osr_nmethods_head();
   int max_level = CompLevel_none;  // Find the max comp level excluding n
   Method* m = n->method();
   // Search for match
+  // 遍历osr_nmethods链表直到遇到n，找到n所属的方法的所有nmehtod的最高编译级别
   while(cur != NULL && cur != n) {
     if (TieredCompilation) {
       // Find max level before n
@@ -2860,7 +2874,9 @@ void InstanceKlass::remove_osr_nmethod(nmethod* n) {
     cur = cur->osr_link();
   }
   nmethod* next = NULL;
+  // 如果从链表中找到了目标nmethod
   if (cur == n) {
+    // 将目标nmethod从链表中移除
     next = cur->osr_link();
     if (last == NULL) {
       // Remove first element
@@ -2872,6 +2888,7 @@ void InstanceKlass::remove_osr_nmethod(nmethod* n) {
   n->set_osr_link(NULL);
   if (TieredCompilation) {
     cur = next;
+    // 遍历链表，更新最大编译级别
     while (cur != NULL) {
       // Find max level after n
       max_level = MAX2(max_level, cur->comp_level());

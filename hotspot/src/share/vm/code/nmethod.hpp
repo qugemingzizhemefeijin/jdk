@@ -106,26 +106,27 @@ class ImplicitExceptionTable;
 class AbstractCompiler;
 class xmlStream;
 
+// 表示一个编译后的Java方法
 class nmethod : public CodeBlob {
   friend class VMStructs;
   friend class NMethodSweeper;
   friend class CodeCache;  // scavengable oops
  private:
   // Shared fields for all nmethod's
-  Method*   _method;
-  int       _entry_bci;        // != InvocationEntryBci if this nmethod is an on-stack replacement method
-  jmethodID _jmethod_id;       // Cache of method()->jmethod_id()
+  Method*   _method;           // 该nmethod对应的Method
+  int       _entry_bci;        // != InvocationEntryBci if this nmethod is an on-stack replacement method // 如果是栈上替换则不等于InvocationEntryBci
+  jmethodID _jmethod_id;       // Cache of method()->jmethod_id()   // 该nmethod对应的Method的jmethodID
 
   // To support simple linked-list chaining of nmethods:
-  nmethod*  _osr_link;         // from InstanceKlass::osr_nmethods_head
+  nmethod*  _osr_link;         // from InstanceKlass::osr_nmethods_head         // 取自InstanceKlass::osr_nmethods_head
   nmethod*  _scavenge_root_link; // from CodeCache::scavenge_root_nmethods
 
   static nmethod* volatile _oops_do_mark_nmethods;
   nmethod*        volatile _oops_do_mark_link;
 
-  AbstractCompiler* _compiler; // The compiler which compiled this nmethod
+  AbstractCompiler* _compiler; // The compiler which compiled this nmethod      // 编译此方法的编译器引用
 
-  // offsets for entry points
+  // offsets for entry points                // 编译后的本地代码的调用入口
   address _entry_point;                      // entry point with class check
   address _verified_entry_point;             // entry point without class check
   address _osr_entry_point;                  // entry point for on stack replacement
@@ -159,8 +160,8 @@ class nmethod : public CodeBlob {
   // pc during a deopt.
   int _orig_pc_offset;
 
-  int _compile_id;                           // which compilation made this nmethod
-  int _comp_level;                           // compilation level
+  int _compile_id;                           // which compilation made this nmethod     // 采用了什么类型的编译
+  int _comp_level;                           // compilation level                       // 编译级别
 
   // protected by CodeCache_lock
   bool _has_flushed_dependencies;            // Used for maintenance of dependencies (CodeCache_lock)
@@ -178,7 +179,7 @@ class nmethod : public CodeBlob {
   unsigned int _has_wide_vectors:1;          // Preserve wide vectors at safepoints
 
   // Protected by Patching_lock
-  volatile unsigned char _state;             // {alive, not_entrant, zombie, unloaded}
+  volatile unsigned char _state;             // {alive, not_entrant, zombie, unloaded}      // 当前nmethod的状态，alive, not_entrant, zombie, unloaded几种
 
 #ifdef ASSERT
   bool _oops_are_stale;  // indicates that it's no longer safe to access oops section
@@ -212,7 +213,7 @@ class nmethod : public CodeBlob {
   // counter is decreased (by 1) while sweeping.
   int _hotness_counter;
 
-  ExceptionCache *_exception_cache;
+  ExceptionCache *_exception_cache;         // 原Java方法的异常处理代码缓存
   PcDescCache     _pc_desc_cache;
 
   // These are used for compiled synchronized native methods to

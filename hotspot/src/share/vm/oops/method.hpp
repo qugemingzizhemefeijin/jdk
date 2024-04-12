@@ -180,6 +180,15 @@ class Method : public Metadata {
   // 否则通过_i2i_entry转向解释方法。
   volatile address           _from_interpreted_entry; // Cache of _code ? _adapter->i2c_entry() : _i2i_entry
 
+  // 总结下Method的三个属性_i2i_entry，_from_compiled_entry和_from_interpreted_entry的具体含义
+
+  // 初始状态下_i2i_entry和_from_interpreted_entry在值是一样的，即正常的字节码解释执行的入口地址，_from_compiled_entry的值是adaper的c2i_entry，
+  // 从本地代码中调用Java方法的入口地址，即从本地代码执行跳转到字节码解释执行。
+
+  // 当执行Method::set_code方法后，原来的Java方法变成了本地方法，这时_from_interpreted_entry变成了adaper的i2c_entry，
+  // 即其他Java方法调用该方法的入口地址从正常的_i2i_entry变成了adaper的i2c_entry，因为此时是从字节码执行切换到本地代码执行；
+  // _from_compiled_entry变成了nmethod中编译代码的起始地址，即其他本地方法调用该方法从c2i_entry变成了直接的起始地址，因为从本地代码中调用该方法的本地代码，不涉及栈帧状态转换。
+
   // Constructor
   Method(ConstMethod* xconst, AccessFlags access_flags, int size);
  public:

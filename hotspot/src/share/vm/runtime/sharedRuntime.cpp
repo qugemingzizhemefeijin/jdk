@@ -2237,8 +2237,10 @@ class AdapterHandlerTable : public BasicHashtable<mtCode> {
   AdapterHandlerEntry* lookup(int total_args_passed, BasicType* sig_bt) {
     NOT_PRODUCT(_lookups++);
     AdapterFingerPrint fp(total_args_passed, sig_bt);
+    // 计算hash值
     unsigned int hash = fp.compute_hash();
     int index = hash_to_index(hash);
+    // 查找hash值相等的
     for (AdapterHandlerEntry* e = bucket(index); e != NULL; e = e->next()) {
       NOT_PRODUCT(_buckets++);
       if (e->hash() == hash) {
@@ -2351,6 +2353,7 @@ void AdapterHandlerLibrary::initialize() {
   // throw AbstractMethodError just in case.
   // Pass wrong_method_abstract for the c2i transitions to return
   // AbstractMethodError for invalid invocations.
+  // 抽象方法无法执行，所以如果通过adaper执行抽象方法，会直接抛出异常
   address wrong_method_abstract = SharedRuntime::get_handle_wrong_method_abstract_stub();
   _abstract_method_handler = AdapterHandlerLibrary::new_entry(new AdapterFingerPrint(0, NULL),
                                                               StubRoutines::throw_AbstractMethodError_entry(),
@@ -2376,6 +2379,7 @@ AdapterHandlerEntry* AdapterHandlerLibrary::get_adapter(methodHandle method) {
   // while we held the lock and then notifying jvmti while
   // holding it. This just forces the initialization to be a little
   // earlier.
+  // 在获取锁AdapterHandlerLibrary_lock前获取ic_miss的地址，强制其更早初始化，从而避免死锁
   address ic_miss = SharedRuntime::get_ic_miss_stub();
   assert(ic_miss != NULL, "must have handler");
 
@@ -2386,20 +2390,26 @@ AdapterHandlerEntry* AdapterHandlerLibrary::get_adapter(methodHandle method) {
   AdapterHandlerEntry* entry = NULL;
   AdapterFingerPrint* fingerprint = NULL;
   {
+    // 获取锁AdapterHandlerLibrary_lock
     MutexLocker mu(AdapterHandlerLibrary_lock);
     // make sure data structure is initialized
+    // 确保相关属性完成初始化
     initialize();
 
+    // 如果是抽象方法
     if (method->is_abstract()) {
       return _abstract_method_handler;
     }
 
     // Fill in the signature array, for the calling-convention call.
+    // 获取方法参数个数
     int total_args_passed = method->size_of_parameters(); // All args on stack
 
+    // 分配数组
     BasicType* sig_bt = NEW_RESOURCE_ARRAY(BasicType, total_args_passed);
     VMRegPair* regs   = NEW_RESOURCE_ARRAY(VMRegPair, total_args_passed);
     int i = 0;
+    // 解析方法的参数类型
     if (!method->is_static())  // Pass in receiver first
       sig_bt[i++] = T_OBJECT;
     for (SignatureStream ss(method->signature()); !ss.at_return_type(); ss.next()) {
@@ -2410,6 +2420,7 @@ AdapterHandlerEntry* AdapterHandlerLibrary::get_adapter(methodHandle method) {
     assert(i == total_args_passed, "");
 
     // Lookup method signature's fingerprint
+    // 根据方法的个数和参数类型生成一个AdapterFingerPrint，查找有没有对应的AdapterHandlerEntry
     entry = _adapters->lookup(total_args_passed, sig_bt);
 
 #ifdef ASSERT
@@ -2420,26 +2431,33 @@ AdapterHandlerEntry* AdapterHandlerLibrary::get_adapter(methodHandle method) {
     }
 #endif
 
+    // 如果已存在，则返回
     if (entry != NULL) {
       return entry;
     }
 
     // Get a description of the compiled java calling convention and the largest used (VMReg) stack slot usage
+    // 计算通过栈帧传递参数的个数，因为用于传递方法参数的寄存器个数和位数有限，多余的参数通过栈帧传递
     int comp_args_on_stack = SharedRuntime::java_calling_convention(sig_bt, regs, total_args_passed, false);
 
     // Make a C heap allocated version of the fingerprint to store in the adapter
+    // 创建一个新的AdapterFingerPrint
     fingerprint = new AdapterFingerPrint(total_args_passed, sig_bt);
 
     // Create I2C & C2I handlers
 
+    // 获取_buffer属性，如果为空则创建一个
     BufferBlob* buf = buffer_blob(); // the temporary code buffer in CodeCache
     if (buf != NULL) {
       CodeBuffer buffer(buf);
       short buffer_locs[20];
+      // 初始化insts区
       buffer.insts()->initialize_shared_locs((relocInfo*)buffer_locs,
                                              sizeof(buffer_locs)/sizeof(relocInfo));
       MacroAssembler _masm(&buffer);
 
+      // 通过汇编生成器MacroAssembler生成对应的转换代码，跟CPU架构强相关
+      // 汇编代码生成后会通过AdapterHandlerLibrary::new_entry创建一个新的AdapterHandlerEntry实例
       entry = SharedRuntime::generate_i2c2i_adapters(&_masm,
                                                      total_args_passed,
                                                      comp_args_on_stack,
@@ -2460,10 +2478,11 @@ AdapterHandlerEntry* AdapterHandlerLibrary::get_adapter(methodHandle method) {
         }
       }
 #endif
-
+      // 创建一个新的AdapterBlob来保存生成的汇编代码
       B = AdapterBlob::create(&buffer);
       NOT_PRODUCT(insts_size = buffer.insts_size());
     }
+    // 如果new_adapter为空，则说明CodeCache没有剩余空间，返回NULL
     if (B == NULL) {
       // CodeCache is full, disable compilation
       // Ought to log this but compile log is only per compile thread
@@ -2472,6 +2491,7 @@ AdapterHandlerEntry* AdapterHandlerLibrary::get_adapter(methodHandle method) {
       CompileBroker::handle_full_code_cache();
       return NULL; // Out of CodeCache space
     }
+    // 如果new_adapter不为空，将entry保存的转换代码地址指向new_adapter
     entry->relocate(B->content_begin());
 #ifndef PRODUCT
     // debugging suppport
@@ -2491,7 +2511,7 @@ AdapterHandlerEntry* AdapterHandlerLibrary::get_adapter(methodHandle method) {
       }
     }
 #endif
-
+    // 将新创建的entry保存起来
     _adapters->add(entry);
   }
   // Outside of the lock
@@ -2503,9 +2523,11 @@ AdapterHandlerEntry* AdapterHandlerLibrary::get_adapter(methodHandle method) {
                  B->name(),
                  fingerprint->as_string(),
                  B->content_begin());
+    // 注册该stub
     Forte::register_stub(blob_id, B->content_begin(), B->content_end());
 
     if (JvmtiExport::should_post_dynamic_code_generated()) {
+      // 发布事件
       JvmtiExport::post_dynamic_code_generated(blob_id, B->content_begin(), B->content_end());
     }
   }
@@ -2524,6 +2546,7 @@ void AdapterHandlerEntry::relocate(address new_base) {
   address old_base = base_address();
   assert(old_base != NULL, "");
   ptrdiff_t delta = new_base - old_base;
+  // 重置_i2c_entry等调用地址
   if (_i2c_entry != NULL)
     _i2c_entry += delta;
   if (_c2i_entry != NULL)

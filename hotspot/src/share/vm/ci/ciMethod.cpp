@@ -68,10 +68,13 @@
 // ciMethod::ciMethod
 //
 // Loaded method.
+// h_m是JVM运行时保存方法指针的Handler，holder是该方法所属的类的klass经过转换后的ciObject实例
+// ciMetadata是ciMethod的父类，这里实际是给_metadata属性赋值，该属性是Metadata*类型，Metadata是Method的基类，即通过_metadata属性保存对应的Method。
 ciMethod::ciMethod(methodHandle h_m) : ciMetadata(h_m()) {
   assert(h_m() != NULL, "no null method");
 
   // These fields are always filled in in loaded methods.
+  // 保存Method中的关键属性，并做适当的转换
   _flags = ciFlags(h_m()->access_flags());
 
   // Easy to compute, so fill them in now.
@@ -95,6 +98,7 @@ ciMethod::ciMethod(methodHandle h_m) : ciMetadata(h_m()) {
 #endif // COMPILER2 || SHARK
 
   ciEnv *env = CURRENT_ENV;
+  // 处理方法编译相关的属性
   if (env->jvmti_can_hotswap_or_post_breakpoint() && can_be_compiled()) {
     // 6328518 check hotswap conditions under the right lock.
     MutexLocker locker(Compile_lock);
@@ -122,6 +126,7 @@ ciMethod::ciMethod(methodHandle h_m) : ciMetadata(h_m()) {
 
   // generating _signature may allow GC and therefore move m.
   // These fields are always filled in.
+  // 保存方法的方法名，方法描述符，常量池等关键信息，即使GC过程中移除了该方法，也不影响编译
   _name = env->get_symbol(h_m()->name());
   _holder = env->get_instance_klass(h_m()->method_holder());
   ciSymbol* sig_symbol = env->get_symbol(h_m()->signature());

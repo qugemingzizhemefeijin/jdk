@@ -819,16 +819,22 @@ void Method::set_not_osr_compilable(int comp_level, bool report, const char* rea
 }
 
 // Revert to using the interpreter and clear out the nmethod
+// 编译代码即nmethod卸载的实现方法
 void Method::clear_code() {
 
   // this may be NULL if c2i adapters have not been made yet
   // Only should happen at allocate time.
+  // 只有给Method分配内存时_adapter可能为空，初始化完成不可能为空
   if (_adapter == NULL) {
     _from_compiled_entry    = NULL;
   } else {
+    // 将_from_compiled_entry恢复成初始的c2i_entry
     _from_compiled_entry    = _adapter->get_c2i_entry();
   }
+  // 让上述修改立即生效
   OrderAccess::storestore();
+  // 将_from_interpreted_entry恢复成_i2i_entry，_i2i_entry最初赋值和_from_interpreted_entry一样，即正常的字节码解释执行入口
+  // 当执行 Method::set_code后，_from_interpreted_entry变成了i2c_entry
   _from_interpreted_entry = _i2i_entry;
   OrderAccess::storestore();
   _code = NULL;
@@ -945,32 +951,45 @@ bool Method::check_code() const {
 }
 
 // Install compiled code.  Instantly it can execute.
+// 执行编译代码安装到对应的Method实例的方法
 void Method::set_code(methodHandle mh, nmethod *code) {
+  // 校验code非空
   assert( code, "use clear_code to remove code" );
+  // 校验method原来的code为空或者不是栈上替换的nmethod
   assert( mh->check_code(), "" );
 
+  // 校验adaper不为空
   guarantee(mh->adapter() != NULL, "Adapter blob must already exist!");
+
+  // 下面的属性修改必须按照顺序依次执行
 
   // These writes must happen in this order, because the interpreter will
   // directly jump to from_interpreted_entry which jumps to an i2c adapter
   // which jumps to _from_compiled_entry.
+  // 将目标方法的_code属性置为code
   mh->_code = code;             // Assign before allowing compiled code to exec
-
+  // 获取编译级别
   int comp_level = code->comp_level();
   // In theory there could be a race here. In practice it is unlikely
   // and not worth worrying about.
+  // 如果大于该方法曾经的最高编译级别则更新
   if (comp_level > mh->highest_comp_level()) {
     mh->set_highest_comp_level(comp_level);
   }
-
+  // 让上述修改立即生效，内存屏障相关
   OrderAccess::storestore();
 #ifdef SHARK
+  // 如果采用Shark编译器，则直接将方法调用入口地址改写成insts_begin
   mh->_from_interpreted_entry = code->insts_begin();
 #else //!SHARK
+  // 如果采用非Shark即使用C1或者C2编译器
+  // 将_from_compiled_entry赋值成verified_entry_point
   mh->_from_compiled_entry = code->verified_entry_point();
   OrderAccess::storestore();
   // Instantly compiled code can execute.
+  // 如果不是MethodHandle的invoke等方法，即编译代码可以立即执行
   if (!mh->is_method_handle_intrinsic())
+    // get_i2c_entry方法实际返回的是一个适配器，在_from_interpreted_entry和_from_compiled_entry之间的适配器
     mh->_from_interpreted_entry = mh->get_i2c_entry();
 #endif //!SHARK
 }

@@ -40,6 +40,7 @@ class CompileTask;
 //
 // This class is the top level broker for requests from the compiler
 // to the VM.
+// 相当于执行编译任务的一个中间类，充当编译器，后台编译线程同JVM运行时环境之间的桥梁。
 class ciEnv : StackObj {
   CI_PACKAGE_ACCESS_TO
 
@@ -47,20 +48,20 @@ class ciEnv : StackObj {
   friend class Dependencies;  // for get_object, during logging
 
 private:
-  Arena*           _arena;       // Alias for _ciEnv_arena except in init_shared_objects()
-  Arena            _ciEnv_arena;
-  int              _system_dictionary_modification_counter;
-  ciObjectFactory* _factory;
-  OopRecorder*     _oop_recorder;
-  DebugInformationRecorder* _debug_info;
-  Dependencies*    _dependencies;
-  const char*      _failure_reason;
-  int              _compilable;
-  bool             _break_at_compile;
-  int              _num_inlined_bytecodes;
-  CompileTask*     _task;           // faster access to CompilerThread::task
-  CompileLog*      _log;            // faster access to CompilerThread::log
-  void*            _compiler_data;  // compiler-specific stuff, if any
+  Arena*           _arena;       // Alias for _ciEnv_arena except in init_shared_objects()      // 用来执行内存分配
+  Arena            _ciEnv_arena;                                                                // 实际指向_ciEnv_arena
+  int              _system_dictionary_modification_counter;                                     // 系统字典修改计数器
+  ciObjectFactory* _factory;                                                                    // 用来创建ciObject及其子类实例，会借助_ciEnv_arena来获取内存
+  OopRecorder*     _oop_recorder;                                                               // 用来临时保存被编译方法的oop_recorder
+  DebugInformationRecorder* _debug_info;                                                        // 用来临时保存被编译方法的debug_info
+  Dependencies*    _dependencies;                                                               // 用来临时保存被编译方法的dependencies
+  const char*      _failure_reason;                                                             // 失败原因
+  int              _compilable;                                                                 // 实际是一个枚举值表示方法编译情况，其枚举值有三个MethodCompilable,MethodCompilable_not_at_tier,MethodCompilable_never
+  bool             _break_at_compile;                                                           // 是否在编译时终止
+  int              _num_inlined_bytecodes;                                                      // 内联字节码的个数
+  CompileTask*     _task;           // faster access to CompilerThread::task                    // 指向CompilerThread::task
+  CompileLog*      _log;            // faster access to CompilerThread::log                     // 指向CompilerThread::log
+  void*            _compiler_data;  // compiler-specific stuff, if any                          // 编译的数据
 
   char* _name_buffer;
   int   _name_buffer_len;
