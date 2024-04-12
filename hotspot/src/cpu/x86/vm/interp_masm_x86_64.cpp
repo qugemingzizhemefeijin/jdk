@@ -276,11 +276,15 @@ void InterpreterMacroAssembler::get_cache_entry_pointer_at_bcp(Register cache,
 void InterpreterMacroAssembler::get_method_counters(Register method,
                                                     Register mcs, Label& skip) {
   Label has_counters;
+  // 获取当前Method的_method_counters属性
   movptr(mcs, Address(method, Method::method_counters_offset()));
+  // 校验_method_counters属性是否非空，如果不为空则跳转到has_counters
   testptr(mcs, mcs);
   jcc(Assembler::notZero, has_counters);
+  // 如果为空，则调用build_method_counters方法创建一个新的MethodCounters
   call_VM(noreg, CAST_FROM_FN_PTR(address,
           InterpreterRuntime::build_method_counters), method);
+  // 将新的MethodCounters的地址放入mcs中，校验其是否为空，如果为空则跳转到skip
   movptr(mcs, Address(method,Method::method_counters_offset()));
   testptr(mcs, mcs);
   jcc(Assembler::zero, skip); // No MethodCounters allocated, OutOfMemory
@@ -1504,11 +1508,17 @@ void InterpreterMacroAssembler::increment_mask_and_jump(Address counter_addr,
                                                         int increment, int mask,
                                                         Register scratch, bool preloaded,
                                                         Condition cond, Label* where) {
+  // preloaded一般传false
   if (!preloaded) {
+    // 将_counter属性的值复制到scratch，即rcx中
     movl(scratch, counter_addr);
   }
+  // 将_counter属性增加increment
   incrementl(scratch, increment);
+  // 将scratch寄存器中的值写入到_counter属性
   movl(counter_addr, scratch);
+  // 将mask与scratch中的值做且运算
   andl(scratch, mask);
+  // 如果且运算的结果是0，即达到阈值的时候，则跳转到where，即overflow处
   jcc(cond, *where);
 }

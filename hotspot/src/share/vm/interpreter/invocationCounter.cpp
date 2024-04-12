@@ -31,7 +31,7 @@
 // Implementation of InvocationCounter
 
 void InvocationCounter::init() {
-  _counter = 0;  // reset all the bits, including the sticky carry
+  _counter = 0;  // reset all the bits, including the sticky carry  // 所有的位都初始化成0
   reset();
 }
 
@@ -42,21 +42,27 @@ void InvocationCounter::reset() {
 }
 
 void InvocationCounter::set_carry() {
+  // 执行set_carry_flag后，_counter会变得很大
   set_carry_flag();
   // The carry bit now indicates that this counter had achieved a very
   // large value.  Now reduce the value, so that the method can be
   // executed many more times before re-entering the VM.
   int old_count = count();
+  // new_count的值一般情况下取后者
   int new_count = MIN2(old_count, (int) (CompileThreshold / 2));
   // prevent from going to zero, to distinguish from never-executed methods
   if (new_count == 0)  new_count = 1;
+  // 重置调用计数
   if (old_count != new_count)  set(state(), new_count);
 }
 
 void InvocationCounter::set_state(State state) {
   assert(0 <= state && state < number_of_states, "illegal state");
+  // 获取该state下的调用计数，初始为0
   int init = _init[state];
   // prevent from going to zero, to distinguish from never-executed methods
+  // 初始状态下count()返回0，init也是0
+  // 当运行一段时间发生状态切换后，count()返回值大于0，如果此时init==0说明是第一次执行此状态下的调用，将init初始化为1
   if (init == 0 && count() > 0)  init = 1;
   int carry = (_counter & carry_mask);    // the carry bit is sticky
   _counter = (init << number_of_noncount_bits) | carry | state;
@@ -104,9 +110,12 @@ const char* InvocationCounter::state_as_short_string(State state) {
 
 static address do_nothing(methodHandle method, TRAPS) {
   // dummy action for inactive invocation counters
+  // 获取并校验目标方法的MethodCounters
   MethodCounters* mcs = method->method_counters();
   assert(mcs != NULL, "");
+  // 重置调用计数为CompileThreshold的一般
   mcs->invocation_counter()->set_carry();
+  // 显示的将状态置为wait_for_nothing
   mcs->invocation_counter()->set_state(InvocationCounter::wait_for_nothing);
   return NULL;
 }
@@ -114,6 +123,7 @@ static address do_nothing(methodHandle method, TRAPS) {
 
 static address do_decay(methodHandle method, TRAPS) {
   // decay invocation counters so compilation gets delayed
+  // 获取并校验目标方法的MethodCounters
   MethodCounters* mcs = method->method_counters();
   assert(mcs != NULL, "");
   mcs->invocation_counter()->decay();
@@ -133,16 +143,21 @@ address dummy_invocation_counter_overflow(methodHandle m, TRAPS) {
   return NULL;
 }
 
+// 主要用于初始化InvocationCounter的静态属性
 void InvocationCounter::reinitialize(bool delay_overflow) {
   // define states
+  // 确保number_of_states小于等于4
   guarantee((int)number_of_states <= (int)state_limit, "adjust number_of_state_bits");
+  // 设置两种状态下的触发动作
   def(wait_for_nothing, 0, do_nothing);
+  // 如果延迟处理，delay_overflow肯定是true，所以不会走到dummy_invocation_counter_overflow，该方法是空实现
   if (delay_overflow) {
     def(wait_for_compile, 0, do_decay);
   } else {
     def(wait_for_compile, 0, dummy_invocation_counter_overflow);
   }
 
+  // 计算InterpreterInvocationLimit等阈值
   InterpreterInvocationLimit = CompileThreshold << number_of_noncount_bits;
   InterpreterProfileLimit = ((CompileThreshold * InterpreterProfilePercentage) / 100)<< number_of_noncount_bits;
 

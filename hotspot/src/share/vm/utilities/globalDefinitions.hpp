@@ -813,12 +813,17 @@ enum JavaThreadState {
 
 
 // Handy constants for deciding which compiler mode to use.
+// 表示方法编译的类型，栈上替换和非栈上替换，其中InvocationEntryBci表示非栈上替换方法编译。
 enum MethodCompilation {
   InvocationEntryBci = -1,     // i.e., not a on-stack replacement compilation
   InvalidOSREntryBci = -2
 };
 
 // Enumeration to distinguish tiers of compilation
+// 表示分级编译的级别，默认情况下是CompLevel_none即解释执行，
+// 注释中的C1，C2和Shark都是Hotspot中包含的编译器类型，
+// 其中C1只能做简单优化，但是编译快；
+// C2和Shark能够做更复杂的编译优化，但是更耗时，且需要开启profile收集方法执行的性能数据。
 enum CompLevel {
   CompLevel_any               = -1,
   CompLevel_all               = -1,

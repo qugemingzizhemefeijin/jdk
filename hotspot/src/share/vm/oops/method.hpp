@@ -823,6 +823,7 @@ class Method : public Metadata {
   }
 
   nmethod* lookup_osr_nmethod_for(int bci, int level, bool match_level) {
+    // method_holder方法返回该方法所属的Klass
     return method_holder()->lookup_osr_nmethod(this, bci, level, match_level);
   }
 

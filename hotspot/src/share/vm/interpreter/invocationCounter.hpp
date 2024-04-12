@@ -42,7 +42,7 @@ class InvocationCounter VALUE_OBJ_CLASS_SPEC {
   friend class VMStructs;
   friend class ciReplay;
  private:                             // bit no: |31  3|  2  | 1 0 |
-  unsigned int _counter;              // format: [count|carry|state]
+  unsigned int _counter;              // format: [count|carry|state]        // 保存调用计数，state。
 
   enum PrivateConstants {
     number_of_state_bits = 2,
@@ -58,9 +58,9 @@ class InvocationCounter VALUE_OBJ_CLASS_SPEC {
   };
 
  public:
-  static int InterpreterInvocationLimit;        // CompileThreshold scaled for interpreter use
-  static int InterpreterBackwardBranchLimit;    // A separate threshold for on stack replacement
-  static int InterpreterProfileLimit;           // Profiling threshold scaled for interpreter use
+  static int InterpreterInvocationLimit;        // CompileThreshold scaled for interpreter use      // 执行方法编译的阈值
+  static int InterpreterBackwardBranchLimit;    // A separate threshold for on stack replacement    // 执行栈上替换的阈值
+  static int InterpreterProfileLimit;           // Profiling threshold scaled for interpreter use   // 收集解释器执行性能数据的阈值
 
   typedef address (*Action)(methodHandle method, TRAPS);
 
@@ -93,6 +93,7 @@ class InvocationCounter VALUE_OBJ_CLASS_SPEC {
   bool   carry() const                           { return (_counter & carry_mask) != 0; }
   int    limit() const                           { return CompileThreshold; }
   Action action() const                          { return _action[state()]; }
+  // 返回总的调用计数
   int    count() const                           { return _counter >> number_of_noncount_bits; }
 
   int   get_InvocationLimit() const              { return InterpreterInvocationLimit >> number_of_noncount_bits; }
@@ -122,8 +123,8 @@ class InvocationCounter VALUE_OBJ_CLASS_SPEC {
   static void reinitialize(bool delay_overflow);
 
  private:
-  static int         _init  [number_of_states];  // the counter limits
-  static Action      _action[number_of_states];  // the actions
+  static int         _init  [number_of_states];  // the counter limits  // 不同State下的阈值
+  static Action      _action[number_of_states];  // the actions         // 不同State下的达到阈值执行的动作
 
   static void        def(State state, int init, Action action);
   static const char* state_as_string(State state);
@@ -133,14 +134,18 @@ class InvocationCounter VALUE_OBJ_CLASS_SPEC {
 inline void InvocationCounter::set(State state, int count) {
   assert(0 <= state && state < number_of_states, "illegal state");
   int carry = (_counter & carry_mask);    // the carry bit is sticky
+  // 重新计算_counter
   _counter = (count << number_of_noncount_bits) | carry | state;
 }
 
 inline void InvocationCounter::decay() {
   int c = count();
+  // 将c右移一位，实际效果相当于除以2
   int new_count = c >> 1;
   // prevent from going to zero, to distinguish from never-executed methods
+  // 避免new_count变成0
   if (c > 0 && new_count == 0) new_count = 1;
+  // 重置调用计数
   set(state(), new_count);
 }
 

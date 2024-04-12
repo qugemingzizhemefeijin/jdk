@@ -2885,10 +2885,13 @@ void InstanceKlass::remove_osr_nmethod(nmethod* n) {
 
 nmethod* InstanceKlass::lookup_osr_nmethod(const Method* m, int bci, int comp_level, bool match_level) const {
   // This is a short non-blocking critical region, so the no safepoint check is ok.
+  // 获取操作OsrList的锁
   OsrList_lock->lock_without_safepoint_check();
+  // 返回_osr_nmethods_head属性，即栈上替换的nmethod链表的头
   nmethod* osr = osr_nmethods_head();
   nmethod* best = NULL;
   while (osr != NULL) {
+    // 校验这个方法是栈上替换方法
     assert(osr->is_osr_method(), "wrong kind of nmethod found in chain");
     // There can be a time when a c1 osr method exists but we are waiting
     // for a c2 version. When c2 completes its osr nmethod we will trash
@@ -2898,13 +2901,16 @@ nmethod* InstanceKlass::lookup_osr_nmethod(const Method* m, int bci, int comp_le
 
     if (osr->method() == m &&
         (bci == InvocationEntryBci || osr->osr_entry_bci() == bci)) {
+      // 如果要求comp_level匹配
       if (match_level) {
+        // 校验osr的comp_level与待查找方法的comp_level是否匹配
         if (osr->comp_level() == comp_level) {
           // Found a match - return it.
           OsrList_lock->unlock();
           return osr;
         }
       } else {
+        // 查找该方法编译优化级别最高的osr，如果找到了则返回
         if (best == NULL || (osr->comp_level() > best->comp_level())) {
           if (osr->comp_level() == CompLevel_highest_tier) {
             // Found the best possible - return it.
@@ -2915,9 +2921,11 @@ nmethod* InstanceKlass::lookup_osr_nmethod(const Method* m, int bci, int comp_le
         }
       }
     }
+    // 不是目标方法，继续查找下一个
     osr = osr->osr_link();
   }
   OsrList_lock->unlock();
+  // 如果没有最高优化级别的osr，则要求其优化级别大于或者等于要求的级别
   if (best != NULL && best->comp_level() >= comp_level && match_level == false) {
     return best;
   }

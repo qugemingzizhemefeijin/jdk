@@ -292,58 +292,79 @@ address TemplateInterpreterGenerator::generate_safept_entry_for(
 // rbx: method
 // ecx: invocation counter
 //
+
+// MethodData主要用于保存解释器方法执行性能的数据，是C2优化的基础；MethodCounters主要用于保存方法调用计数相关。
+
+// 判断overflow后就会跳转到invocation_counter_overflow标签处，即执行generate_counter_overflow方法
+// 触发的主要是方法调用次数超过阈值这种情形下的方法编译，这种编译不是立即执行的，不需要做栈上替换，而是提交一个任务给后台编译线程，编译线程编译完成后自动完成相关替换。
 void InterpreterGenerator::generate_counter_incr(
         Label* overflow,
         Label* profile_method,
         Label* profile_method_continue) {
   Label done;
   // Note: In tiered we increment either counters in Method* or in MDO depending if we're profiling or not.
+  // 如果启用分级编译，server模式下默认启用
   if (TieredCompilation) {
+    // 因为InvocationCounter的_counter中调用计数部分是前29位，所以增加一次调用计数不是从1开始，而是1<<3即8
     int increment = InvocationCounter::count_increment;
+    // Tier0InvokeNotifyFreqLog默认值是7，count_shift是_counter属性中非调用计数部分的位数，这里是3
     int mask = ((1 << Tier0InvokeNotifyFreqLog)  - 1) << InvocationCounter::count_shift;
     Label no_mdo;
+    // 如果开启性能收集
     if (ProfileInterpreter) {
       // Are we profiling?
+      // 校验Method中的_method_data属性非空，如果为空则跳转到no_mdo
       __ movptr(rax, Address(rbx, Method::method_data_offset()));
       __ testptr(rax, rax);
       __ jccb(Assembler::zero, no_mdo);
       // Increment counter in the MDO
+      // 获取MethodData的_invocation_counter属性的_counter属性的地址
       const Address mdo_invocation_counter(rax, in_bytes(MethodData::invocation_counter_offset()) +
                                                 in_bytes(InvocationCounter::counter_offset()));
+      // 此时rcx中的值无意义
       __ increment_mask_and_jump(mdo_invocation_counter, increment, mask, rcx, false, Assembler::zero, overflow);
       __ jmp(done);
     }
     __ bind(no_mdo);
     // Increment counter in MethodCounters
+    // 获取MethodCounters的_invocation_counter属性的_counter属性的地址，get_method_counters方法会将MethodCounters的地址放入rax中
     const Address invocation_counter(rax,
                   MethodCounters::invocation_counter_offset() +
                   InvocationCounter::counter_offset());
+    // 获取MethodCounters的地址并将其放入rax中
     __ get_method_counters(rbx, rax, done);
+    // 增加计数
     __ increment_mask_and_jump(invocation_counter, increment, mask, rcx,
                                false, Assembler::zero, overflow);
     __ bind(done);
   } else {
+    // 获取MethodCounters的_backedge_counter属性的_counter属性的地址
     const Address backedge_counter(rax,
                   MethodCounters::backedge_counter_offset() +
                   InvocationCounter::counter_offset());
+    // 获取MethodCounters的_invocation_counter属性的_counter属性的地址
     const Address invocation_counter(rax,
                   MethodCounters::invocation_counter_offset() +
                   InvocationCounter::counter_offset());
-
+    // 获取MethodCounters的地址并将其放入rax中
     __ get_method_counters(rbx, rax, done);
 
+    // 如果开启性能收集
     if (ProfileInterpreter) {
+      // 因为value为0，所以这里啥都不做
       __ incrementl(Address(rax,
               MethodCounters::interpreter_invocation_counter_offset()));
     }
     // Update standard invocation counters
+    // 更新invocation_counter
     __ movl(rcx, invocation_counter);
     __ incrementl(rcx, InvocationCounter::count_increment);
     __ movl(invocation_counter, rcx); // save invocation count
 
     __ movl(rax, backedge_counter);   // load backedge counter
+    // 计算出status的位
     __ andl(rax, InvocationCounter::count_mask_value); // mask out the status bits
-
+    // 将rcx中的调用计数同rax中的status做且运算
     __ addl(rcx, rax);                // add both counters
 
     // profile_method is non-null only for interpreted method so
@@ -351,19 +372,22 @@ void InterpreterGenerator::generate_counter_incr(
 
     if (ProfileInterpreter && profile_method != NULL) {
       // Test to see if we should create a method data oop
+      // 如果rcx的值小于InterpreterProfileLimit，则跳转到profile_method_continue
       __ cmp32(rcx, ExternalAddress((address)&InvocationCounter::InterpreterProfileLimit));
       __ jcc(Assembler::less, *profile_method_continue);
 
       // if no method data exists, go to profile_method
+      // 如果大于，则校验methodData是否存在，如果不存在则跳转到profile_method
       __ test_method_data_pointer(rax, *profile_method);
     }
-
+    // 比较rcx的值是否超过InterpreterInvocationLimit，如果大于等于则跳转到overflow
     __ cmp32(rcx, ExternalAddress((address)&InvocationCounter::InterpreterInvocationLimit));
     __ jcc(Assembler::aboveEqual, *overflow);
     __ bind(done);
   }
 }
 
+// 用于处理方法调用计数超过阈值的情形，是触发方法编译的入口。
 void InterpreterGenerator::generate_counter_overflow(Label* do_continue) {
 
   // Asm interpreter on entry
@@ -384,15 +408,21 @@ void InterpreterGenerator::generate_counter_overflow(Label* do_continue) {
   // of the verified entry point for the method or NULL if the
   // compilation did not complete (either went background or bailed
   // out).
+
+  // InterpreterRuntime::frequency_counter_overflow需要两个参数，第一个参数thread在执行call_VM时传递，第二个参数表明
+  // 调用计数超过阈值是否发生在循环分支上，如果否则传递NULL，我们传递0，即NULL，如果是则传该循环的跳转分支地址
+  // 这个方法返回编译后的方法的入口地址，如果编译没有完成则返回NULL
   __ movl(c_rarg1, 0);
   __ call_VM(noreg,
              CAST_FROM_FN_PTR(address,
                               InterpreterRuntime::frequency_counter_overflow),
              c_rarg1);
 
+  // 恢复rbx中的Method*，method_offset是全局变量
   __ movptr(rbx, Address(rbp, method_offset));   // restore Method*
   // Preserve invariant that r13/r14 contain bcp/locals of sender frame
   // and jump to the interpreted entry.
+  // 跳转到do_continue标签
   __ jmp(*do_continue, relocInfo::none);
 }
 
