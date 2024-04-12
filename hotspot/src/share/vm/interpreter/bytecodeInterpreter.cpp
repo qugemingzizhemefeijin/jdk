@@ -2259,7 +2259,10 @@ run:
         u2 index = Bytes::get_native_u2(pc+1);
         ConstantPoolCacheEntry* cache = cp->entry_at(index);
 
+        // 如果这个指令在常量池中没有直接引语缓存，则对其进行解析，将符号引用转换成直接引用
         if (! cache->is_resolved((Bytecodes::Code) opcode)) {
+          // hotspot/src/share/vm/interpreter/interpreterRuntime.cpp
+          // IRT_ENTRY(void, InterpreterRuntime::resolve_invokehandle(JavaThread* thread))
           CALL_VM(InterpreterRuntime::resolve_invokehandle(THREAD),
                   handle_exception);
           cache = cp->entry_at(index);

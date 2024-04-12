@@ -1272,6 +1272,8 @@ JVM_END
  * Throws a java/lang/UnsupportedOperationException unconditionally.
  * This is required by the specification of MethodHandle.invoke if
  * invoked directly.
+ *
+ * 反射调用MethodHandle.invoke方法时才会走这个实现，直接调用走其他实现。说白了就是MethodHandle.invoke方法不能被反射调用。
  */
 JVM_ENTRY(jobject, MH_invoke_UOE(JNIEnv* env, jobject mh, jobjectArray args)) {
   THROW_MSG_NULL(vmSymbols::java_lang_UnsupportedOperationException(), "MethodHandle.invoke cannot be invoked reflectively");

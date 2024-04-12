@@ -1029,6 +1029,9 @@ Klass* SystemDictionary::find_instance_or_array_klass(Symbol* class_name,
 // Note: this method is much like resolve_from_stream, but
 // updates no supplemental data structures.
 // TODO consolidate the two methods with a helper routine?
+
+// 注意：此方法与resolve_from_stream非常相似，但不更新任何补充数据结构。
+// TODO 将这两种方法与辅助程序合并？
 Klass* SystemDictionary::parse_stream(Symbol* class_name,
                                       Handle class_loader,
                                       Handle protection_domain,
@@ -1058,6 +1061,7 @@ Klass* SystemDictionary::parse_stream(Symbol* class_name,
   //
   // Note: "name" is updated.
 
+  // 获取加载.class文件保存在方法区的元数据instanceKlass
   instanceKlassHandle k = ClassFileParser(st).parseClassFile(class_name,
                                                              loader_data,
                                                              protection_domain,
@@ -1084,10 +1088,18 @@ Klass* SystemDictionary::parse_stream(Symbol* class_name,
     }
 
     // Rewrite and patch constant pool here.
+    // 类链接：
+    // 1.指令重写，将特定的字节码进行指令重新，如MethodHandle.invoke方法调用时原字节码中为invokevirtual指令，在这一步会被重写为invokehandle
+    // 2.方法链接，为方法编译出解释器和编译器两种入口，ClassFileParser(st).parseClassFile中会根据.class文件中方法相关的字节码创建方法的局部变量表空间，操作数栈空间等，
+    //   但此时方法仍然不可以被调用执行，必须经过方法链接才算完整。解释器和编译器两种入口即方法的指针。
+    // 3.初始化vtable和itable，vtable和itable的创建和大小计算在ClassFileParser(st).parseClassFile中已完成，在此处填充引用。
     k->link_class(CHECK_NULL);
     if (cp_patches != NULL) {
+      // 将常量池中Utf8、String、int、long等常量的符号引用解析成直接引用，像Methodref、Fieldref等类型的符号引用在运行时首次调用时才会解析成直接引用，
+      // 并触发相关定义类的类加载（解析阶段并不是只发生类加载期间，在方法调用期间也会存在解析操作）。
       k->constants()->patch_resolved_references(cp_patches);
     }
+    // 类初始化入口，包括对<cinit>方法的调用，过程加锁
     k->eager_initialize(CHECK_NULL);
 
     // notify jvmti
@@ -1109,6 +1121,8 @@ Klass* SystemDictionary::parse_stream(Symbol* class_name,
 // Note: class_name can be NULL. In that case we do not know the name of
 // the class until we have parsed the stream.
 
+// 从流（由 jni_DefineClass 和 JVM_DefineClass 调用）向系统添加 klass。
+// 注意：class_name 可以为 NULL。在这种情况下，在解析流之前，我们不知道类的名称。
 Klass* SystemDictionary::resolve_from_stream(Symbol* class_name,
                                              Handle class_loader,
                                              Handle protection_domain,
@@ -2430,7 +2444,10 @@ methodHandle SystemDictionary::find_method_handle_invoker(Symbol* name,
     THROW_MSG_(vmSymbols::java_lang_InternalError(), "bad invokehandle", empty);
   }
 
-  // call java.lang.invoke.MethodHandleNatives::linkMethod(... String, MethodType) -> MemberName
+  // invokehandle指令执行到最后会调用java代码中的java.lang.invoke.MethodHandleNatives::linkMethod(... String, MethodType)方法返回一个MemberName对象（MemberName描述一个具体的方法）。
+  // 然后获取MemberName中描述方法的直接引用保存到运行时常量池中并调用方法，后续再次执行invokehandle指令时就不需要解析了，直接取常量池中缓存的直接引用。
+
+  // 调用JAVA方法 call java.lang.invoke.MethodHandleNatives::linkMethod(... String, MethodType) -> MemberName
   JavaCallArguments args;
   args.push_oop(accessing_klass()->java_mirror());
   args.push_int(ref_kind);

@@ -755,6 +755,7 @@ IRT_ENTRY(void, InterpreterRuntime::resolve_invokehandle(JavaThread* thread)) {
 
   {
     JvmtiHideSingleStepping jhss(thread);
+    // 解析核心方法
     LinkResolver::resolve_invoke(info, Handle(), pool,
                                  get_index_u2_cpcache(thread, bytecode), bytecode, CHECK);
   } // end JvmtiHideSingleStepping

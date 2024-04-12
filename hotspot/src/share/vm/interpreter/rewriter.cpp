@@ -153,6 +153,7 @@ void Rewriter::rewrite_member_reference(address bcp, int offset, bool reverse) {
     int  cache_index = cp_entry_to_cp_cache(cp_index);
     Bytes::put_native_u2(p, cache_index);
     if (!_method_handle_invokers.is_empty())
+      // invokevirtual指令如果调用的是MethodHandle.invoke系列的接口则尝试重写
       maybe_rewrite_invokehandle(p - 1, cp_index, cache_index, reverse);
   } else {
     int cache_index = Bytes::get_native_u2(p);
@@ -191,6 +192,7 @@ void Rewriter::rewrite_invokespecial(address bcp, int offset, bool reverse, bool
 
 
 // Adjust the invocation bytecode for a signature-polymorphic method (MethodHandle.invoke, etc.)
+// 调整签名多态方法（MethodHandle.invoke 等）的调用字节码
 void Rewriter::maybe_rewrite_invokehandle(address opc, int cp_index, int cache_index, bool reverse) {
   if (!reverse) {
     if ((*opc) == (u1)Bytecodes::_invokevirtual ||
@@ -217,6 +219,7 @@ void Rewriter::maybe_rewrite_invokehandle(address opc, int cp_index, int cache_i
       // The basic reason for this is that such methods need an extra "appendix" argument
       // to transmit the call site's intended call type.
       if (status > 0) {
+        // 在此处将符合条件的invokevirtual指令重写为invokehandle指令
         (*opc) = (u1)Bytecodes::_invokehandle;
       }
     }
@@ -418,6 +421,7 @@ void Rewriter::scan_method(Method* method, bool reverse, bool* invokespecial_err
         case Bytecodes::_invokestatic   :
         case Bytecodes::_invokeinterface:
         case Bytecodes::_invokehandle   : // if reverse=true
+          // 此处是针对invokevirtual指令的重写
           rewrite_member_reference(bcp, prefix_length+1, reverse);
           break;
         case Bytecodes::_invokedynamic:
@@ -467,6 +471,7 @@ methodHandle Rewriter::rewrite_jsrs(methodHandle method, TRAPS) {
   return method;
 }
 
+// 对.class文件进行指令重写，比如MethodHandle.java中被标记@PolymorphicSignature的方法
 void Rewriter::rewrite(instanceKlassHandle klass, TRAPS) {
   ResourceMark rm(THREAD);
   Rewriter     rw(klass, klass->constants(), klass->methods(), CHECK);
@@ -516,6 +521,7 @@ Rewriter::Rewriter(instanceKlassHandle klass, constantPoolHandle cpool, Array<Me
 
   for (int i = len-1; i >= 0; i--) {
     Method* method = _methods->at(i);
+    // 遍历全部方法，针对每个方法进行扫描，进行指令重写
     scan_method(method, false, &invokespecial_error);
     if (invokespecial_error) {
       // If you get an error here, there is no reversing bytecodes

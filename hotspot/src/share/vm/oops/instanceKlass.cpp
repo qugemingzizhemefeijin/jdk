@@ -725,7 +725,7 @@ bool InstanceKlass::link_class_impl(
         }
 
         // also sets rewritten
-        // 重写类
+        // 字节码指令重写
         this_oop->rewrite_class(CHECK_false);
       }
 

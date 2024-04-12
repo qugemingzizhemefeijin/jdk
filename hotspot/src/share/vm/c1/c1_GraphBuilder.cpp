@@ -4014,9 +4014,13 @@ bool GraphBuilder::try_method_handle_inline(ciMethod* callee) {
   case vmIntrinsics::_invokeBasic:
     {
       // get MethodHandle receiver
+      // 根据操作数栈的深度减去invokeBasic方法的参数数量，获取MethodHandle在操作数栈中的位置
       const int args_base = state()->stack_size() - callee->arg_size();
+      // 在操作数栈中获取MethodHandle引用
       ValueType* type = state()->stack_at(args_base)->type();
+      // 判断MethodHandle引用是否是常量，如果是则可以放心进行激进优化，如果不是则不进行优化，并打印不优化的原因为receiver not constant（接收器不恒定）
       if (type->is_constant()) {
+        // 获取MethodHandle中的vmentry，即下一步要调用的方法引用
         ciMethod* target = type->as_ObjectType()->constant_value()->as_method_handle()->get_vmtarget();
         // We don't do CHA here so only inline static and statically bindable methods.
         if (target->is_static() || target->can_be_statically_bound()) {
@@ -4038,6 +4042,8 @@ bool GraphBuilder::try_method_handle_inline(ciMethod* callee) {
   case vmIntrinsics::_linkToSpecial:
   case vmIntrinsics::_linkToInterface:
     {
+      // 也是类似invokeBasic的特殊处理，在操作数栈中获取目标方法的MemberName，如果是MemberName是常量，
+      // 再进行一堆判断最后重新组装成invokestatic或invokespecial或invokevirtual或invokeinterface然后调用try_inline();
       // pop MemberName argument
       const int args_base = state()->stack_size() - callee->arg_size();
       ValueType* type = apop()->type();

@@ -317,6 +317,9 @@ void LinkResolver::lookup_polymorphic_method(methodHandle& result,
                                              Handle *appendix_result_or_null,
                                              Handle *method_type_result,
                                              TRAPS) {
+  // 在MethodHandle中关键的native方法有：invoke、invokeExact、invokeBasic、linkToVirtual、linkToStatic、linkToSpecial、linkToInterface。
+  // 其中invokeBasic、linkToVirtual、linkToStatic、linkToSpecial、linkToInterface为intrinsic函数执行 find_method_handle_intrinsic；
+  // invoke、invokeExact执行 find_method_handle_invoker。
   vmIntrinsics::ID iid = MethodHandles::signature_polymorphic_name_id(name);
   if (TraceMethodHandles) {
     ResourceMark rm(THREAD);
@@ -327,6 +330,12 @@ void LinkResolver::lookup_polymorphic_method(methodHandle& result,
   if (EnableInvokeDynamic &&
       klass() == SystemDictionary::MethodHandle_klass() &&
       iid != vmIntrinsics::_none) {
+    // 注：由于JVM是跨平台的虚拟机，不同的操作系统的CPU指令集不同，都或多或少的有特殊指令(针对某种场景的特殊指令，进行了硬件方面的优化)。
+    // 为了利用不同操作系统特殊指令带来性能提升，HotSpot推出了 intrinsic 函数。对这些方法的调用，会被 HotSpot 虚拟机替换成高效的指令序列。
+    // 而原本的方法实现则会被忽略掉。
+    //
+    // HotSpot 虚拟机定义了三百多个 intrinsic，intrinsic函数大多是native函数，这些native函数是可以被内联的，
+    // intrinsic函数可以在源码的JVM/jdk-jdk8-b120-源码/hotspot/src/share/vm/classfile/vmSymbols.hpp文件看到全部声明。
     if (MethodHandles::is_signature_polymorphic_intrinsic(iid)) {
       // Most of these do not need an up-call to Java to resolve, so can be done anywhere.
       // Do not erase last argument type (MemberName) if it is a static linkTo method.
@@ -372,6 +381,7 @@ void LinkResolver::lookup_polymorphic_method(methodHandle& result,
 
       Handle appendix;
       Handle method_type;
+      // invoke、invokeExact执行
       result = SystemDictionary::find_method_handle_invoker(name,
                                                             full_signature,
                                                             current_klass,
@@ -1465,6 +1475,7 @@ void LinkResolver::resolve_invoke(CallInfo& result, Handle recv, constantPoolHan
     case Bytecodes::_invokestatic   : resolve_invokestatic   (result,       pool, index, CHECK); break;
     case Bytecodes::_invokespecial  : resolve_invokespecial  (result,       pool, index, CHECK); break;
     case Bytecodes::_invokevirtual  : resolve_invokevirtual  (result, recv, pool, index, CHECK); break;
+    // invokehandle指令相关解析
     case Bytecodes::_invokehandle   : resolve_invokehandle   (result,       pool, index, CHECK); break;
     case Bytecodes::_invokedynamic  : resolve_invokedynamic  (result,       pool, index, CHECK); break;
     case Bytecodes::_invokeinterface: resolve_invokeinterface(result, recv, pool, index, CHECK); break;
@@ -1541,6 +1552,7 @@ void LinkResolver::resolve_invokehandle(CallInfo& result, constantPoolHandle poo
     ResourceMark rm(THREAD);
     tty->print_cr("resolve_invokehandle %s %s", method_name->as_C_string(), method_signature->as_C_string());
   }
+  // 核心方法
   resolve_handle_call(result, resolved_klass, method_name, method_signature, current_klass, CHECK);
 }
 
@@ -1554,6 +1566,7 @@ void LinkResolver::resolve_handle_call(CallInfo& result, KlassHandle resolved_kl
   methodHandle resolved_method;
   Handle       resolved_appendix;
   Handle       resolved_method_type;
+  // 核心方法
   lookup_polymorphic_method(resolved_method, resolved_klass,
                             method_name, method_signature,
                             current_klass, &resolved_appendix, &resolved_method_type, CHECK);
