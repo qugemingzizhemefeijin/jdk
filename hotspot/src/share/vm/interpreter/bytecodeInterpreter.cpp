@@ -2221,31 +2221,47 @@ run:
           ShouldNotReachHere();
         }
 
+        // 获取指向 invokedynamic 常量池的索引
         u4 index = Bytes::get_native_u4(pc+1);
+        // 获取常量池运行时信息，CP表示常量池在运行时动态产生的信息即可（ConstantPool 类表示类的静态信息）
         ConstantPoolCacheEntry* cache = cp->constant_pool()->invokedynamic_cp_cache_entry_at(index);
 
         // We are resolved if the resolved_references field contains a non-null object (CallSite, etc.)
         // This kind of CP cache entry does not need to match the flags byte, because
         // there is a 1-1 relation between bytecode type and CP entry type.
+        // 当前运行时信息是否已经完成解析，当然，首次第调用必定没有解析，所以这里需要调用resolve_invokedynamic解析该常量池
+        // （注意哦：字节码中的索引下标所有的都没有真实地址，这里解析就是把这些符号描述转为真实对象地址，这里也是一个重点）
         if (! cache->is_resolved((Bytecodes::Code) opcode)) {
+          // 核心方法
           CALL_VM(InterpreterRuntime::resolve_invokedynamic(THREAD),
                   handle_exception);
           cache = cp->constant_pool()->invokedynamic_cp_cache_entry_at(index);
         }
 
+        // 从运行时信息中获取到要调用的方法指针，注意，这个方法就是包含字节码信息的执行方法
         Method* method = cache->f1_as_method();
         if (VerifyOops) method->verify();
 
+        // 存在appendix对象，那么将其放入操作数栈顶，调用的方法可以使用该栈顶对象
         if (cache->has_appendix()) {
           ConstantPool* constants = METHOD->constants();
           SET_STACK_OBJECT(cache->appendix_if_resolved(constants), 0);
           MORE_STACK(1);
         }
 
-        istate->set_msg(call_method);
-        istate->set_callee(method);
-        istate->set_callee_entry_point(method->from_interpreted_entry());
-        istate->set_bcp_advance(5);
+        // Code:
+        // stack=1, locals=2, args_size=1
+        //  0: invokedynamic #2,  0              // InvokeDynamic #0:run:()Ljava/lang/Runnable;
+        //  5: astore_1
+        //  6: aload_1
+        //  7: invokeinterface #3,  1            // InterfaceMethod java/lang/Runnable.run:()V
+        //  12: return
+
+        // 开始告诉解释器调用 Method* method
+        istate->set_msg(call_method);   // 更改解释器状态：需要调用方法
+        istate->set_callee(method);     // 调用的方法体
+        istate->set_callee_entry_point(method->from_interpreted_entry());   // 该方法的解释器入口，也即解释器需要到该入口处开始执行
+        istate->set_bcp_advance(5); // 告诉解释器执行完该方法返回时，设置当前bcp 也即 字节码指针（PC 计数器）向前跳转 5个字节，也即到astore_1 处
 
         UPDATE_PC_AND_RETURN(0); // I'll be back...
       }

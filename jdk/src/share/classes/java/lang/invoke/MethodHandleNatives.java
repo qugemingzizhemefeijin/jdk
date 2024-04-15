@@ -289,10 +289,13 @@ class MethodHandleNatives {
                                    Object nameObj, Object typeObj,
                                    Object staticArguments,
                                    Object[] appendixResult) {
+        // 向我们刚才提到的中间代码
         MethodHandle bootstrapMethod = (MethodHandle)bootstrapMethodObj;
         Class<?> caller = (Class<?>)callerObj;
         String name = nameObj.toString().intern();
         MethodType type = (MethodType)typeObj;
+        // 调用 MethodHandle 指向的方法，这里就是LambdaMetafactory.metafactory 方法，
+        // 该方法将返回一个 ConstantCallSite，我们看到这里将 ConstantCallSite 内部的dynamicInvoker对象放入到了appendixResult 数组中
         CallSite callSite = CallSite.makeSite(bootstrapMethod,
                                               name,
                                               type,
@@ -300,6 +303,7 @@ class MethodHandleNatives {
                                               caller);
         if (callSite instanceof ConstantCallSite) {
             appendixResult[0] = callSite.dynamicInvoker();
+            // 根据方法类型，构建一个MemberName对象
             return Invokers.linkToTargetMethod(type);
         } else {
             appendixResult[0] = callSite;

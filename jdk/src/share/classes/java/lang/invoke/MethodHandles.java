@@ -1602,6 +1602,7 @@ return mh1;
             return getDirectMethodCommon(refKind, refc, method, checkSecurity, doRestrict, callerClass);
         }
         /** Common code for all methods; do not call directly except from immediately above. */
+        // 完成实际MethodHandle生成
         private MethodHandle getDirectMethodCommon(byte refKind, Class<?> refc, MemberName method,
                                                    boolean checkSecurity,
                                                    boolean doRestrict, Class<?> callerClass) throws IllegalAccessException {
@@ -1635,6 +1636,7 @@ return mh1;
                 checkMethod(refKind, refc, method);
             }
 
+            // 完成实际MethodHandle生成
             MethodHandle mh = DirectMethodHandle.make(refKind, refc, method);
             mh = maybeBindCaller(method, mh, callerClass);
             mh = mh.setVarargs(method);
@@ -1705,12 +1707,13 @@ return mh1;
         }
 
         /** Hook called from the JVM (via MethodHandleNatives) to link MH constants:
+         * LambdaMetafactory.metafactory的方法会最终通过JVM调用到此方法来获取MethodHandle对象
          */
         /*non-public*/
         MethodHandle linkMethodHandleConstant(byte refKind, Class<?> defc, String name, Object type) throws ReflectiveOperationException {
             if (!(type instanceof Class || type instanceof MethodType))
                 throw new InternalError("unresolved MemberName");
-            MemberName member = new MemberName(refKind, defc, name, type);
+            MemberName member = new MemberName(refKind, defc, name, type); // 创建MN 保存方法的元数据
             MethodHandle mh = LOOKASIDE_TABLE.get(member);
             if (mh != null) {
                 checkSymbolicClass(defc);
@@ -1724,7 +1727,7 @@ return mh1;
                 }
             }
             MemberName resolved = resolveOrFail(refKind, member);
-            mh = getDirectMethodForConstant(refKind, defc, resolved);
+            mh = getDirectMethodForConstant(refKind, defc, resolved); // 获取MethodHandle对象
             if (mh instanceof DirectMethodHandle
                     && canBeCached(refKind, defc, resolved)) {
                 MemberName key = mh.internalMemberName();
@@ -1769,8 +1772,8 @@ return mh1;
             }
             return true;
         }
-        private
-        MethodHandle getDirectMethodForConstant(byte refKind, Class<?> defc, MemberName member)
+
+        private MethodHandle getDirectMethodForConstant(byte refKind, Class<?> defc, MemberName member)
                 throws ReflectiveOperationException {
             if (MethodHandleNatives.refKindIsField(refKind)) {
                 return getDirectFieldNoSecurityManager(refKind, defc, member);
@@ -2120,6 +2123,7 @@ assert((int)twice.invokeExact(21) == 42);
             Wrapper w = Wrapper.forPrimitiveType(type);
             return insertArguments(identity(type), 0, w.convert(value, type));
         } else {
+            // 将生成的值绑定到 MethodHandle中
             return identity(type).bindTo(type.cast(value));
         }
     }

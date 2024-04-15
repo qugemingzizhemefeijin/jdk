@@ -191,6 +191,8 @@ import static jdk.internal.org.objectweb.asm.Opcodes.*;
      */
     @Override
     CallSite buildCallSite() throws LambdaConversionException {
+        // new Thread(()->{})
+        // 创建 Lambda 实现的内部类，也即实现了 Runnable 的内部类
         final Class<?> innerClass = spinInnerClass();
         if (invokedType.parameterCount() == 0) {
             final Constructor[] ctrs = AccessController.doPrivileged(
@@ -212,6 +214,7 @@ import static jdk.internal.org.objectweb.asm.Opcodes.*;
             }
 
             try {
+                // 根据创建的类构建一个对象生成要给 MethodHandle 对象，同时将该对象放入 ConstantCallSite 并返回
                 Object inst = ctrs[0].newInstance();
                 return new ConstantCallSite(MethodHandles.constant(samBase, inst));
             }
@@ -219,6 +222,7 @@ import static jdk.internal.org.objectweb.asm.Opcodes.*;
                 throw new LambdaConversionException("Exception instantiating lambda object", e);
             }
         } else {
+            // 参数不为零，那么生成 Static 方法
             try {
                 UNSAFE.ensureClassInitialized(innerClass);
                 return new ConstantCallSite(
@@ -246,7 +250,45 @@ import static jdk.internal.org.objectweb.asm.Opcodes.*;
      * @throws LambdaConversionException If properly formed functional interface
      * is not found
      */
+    /*
+    final class Demo$$Lambda$1 implements java.lang.Runnable
+    // ...
+    Constant pool:
+       #1 = Utf8               Demo$$Lambda$1
+       #2 = Class              #1             // Demo$$Lambda$1
+       #3 = Utf8               java/lang/Object
+       #4 = Class              #3             // java/lang/Object
+       #5 = Utf8               java/lang/Runnable
+       #6 = Class              #5             // java/lang/Runnable
+       #7 = Utf8               <init>
+       #8 = Utf8               ()V
+       #9 = NameAndType        #7:#8          // "<init>":()V
+      #10 = Methodref          #4.#9          // java/lang/Object."<init>":()V
+      #11 = Utf8               run
+      #12 = Utf8               Ljava/lang/invoke/LambdaForm$Hidden;
+      #13 = Utf8               Demo
+      #14 = Class              #13            // Demo
+      #15 = Utf8               lambda$main$0
+      #16 = NameAndType        #15:#8         // lambda$main$0:()V
+      #17 = Methodref          #14.#16        // Demo.lambda$main$0:()V
+      #18 = Utf8               Code
+      #19 = Utf8               RuntimeVisibleAnnotations
+    {
+      public void run();
+        descriptor: ()V
+        flags: ACC_PUBLIC
+        Code:
+          stack=0, locals=1, args_size=1
+             0: invokestatic  #17                 // Method Demo.lambda$main$0:()V
+             3: return
+        RuntimeVisibleAnnotations:
+          0: #12()
+    }
+
+
+     */
     private Class<?> spinInnerClass() throws LambdaConversionException {
+        // 调用ASM来写字节码生成Runnable的实现类
         String[] interfaces;
         String samIntf = samBase.getName().replace('.', '/');
         boolean accidentallySerializable = !isSerializable && Serializable.class.isAssignableFrom(samBase);

@@ -296,11 +296,13 @@ public class LambdaMetafactory {
                                        MethodType instantiatedMethodType)
             throws LambdaConversionException {
         AbstractValidatingLambdaMetafactory mf;
+        // 构建内部类LambdaMetaFactory对象
         mf = new InnerClassLambdaMetafactory(caller, invokedType,
                                              invokedName, samMethodType,
                                              implMethod, instantiatedMethodType,
                                              false, EMPTY_CLASS_ARRAY, EMPTY_MT_ARRAY);
         mf.validateMetafactoryArgs();
+        // 构建CallSite
         return mf.buildCallSite();
     }
 

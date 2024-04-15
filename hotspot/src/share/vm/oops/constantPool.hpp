@@ -717,13 +717,16 @@ class ConstantPool : public Metadata {
     return resolve_constant_at_impl(h_this, _no_index_sentinel, cache_index, THREAD);
   }
 
+  // 解析MethodHandle对象
   oop resolve_possibly_cached_constant_at(int pool_index, TRAPS) {
     constantPoolHandle h_this(THREAD, this);
     return resolve_constant_at_impl(h_this, pool_index, _possible_index_sentinel, THREAD);
   }
 
+  // 解析bsm方法的核心
   oop resolve_bootstrap_specifier_at(int index, TRAPS) {
     constantPoolHandle h_this(THREAD, this);
+    // 核心方法，在其实现中
     return resolve_bootstrap_specifier_at_impl(h_this, index, THREAD);
   }
 

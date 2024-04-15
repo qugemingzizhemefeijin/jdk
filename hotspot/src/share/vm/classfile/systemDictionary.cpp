@@ -2385,6 +2385,7 @@ methodHandle SystemDictionary::find_method_handle_intrinsic(vmIntrinsics::ID iid
 }
 
 // Helper for unpacking the return value from linkMethod and linkCallSite.
+// 调用完毕后将method和appendix解包
 static methodHandle unpack_method_and_appendix(Handle mname,
                                                KlassHandle accessing_klass,
                                                objArrayHandle appendix_box,
@@ -2392,9 +2393,12 @@ static methodHandle unpack_method_and_appendix(Handle mname,
                                                TRAPS) {
   methodHandle empty;
   if (mname.not_null()) {
+    // 获取到MemberName方法结构中描述的调用方法的元数据
     Metadata* vmtarget = java_lang_invoke_MemberName::vmtarget(mname());
     if (vmtarget != NULL && vmtarget->is_method()) {
+      // 转为实际调用方法的指针
       Method* m = (Method*)vmtarget;
+      // 获取调用方法时传递的Java对象，该对象前面我们看到在MethodHandleNatives::linkCallSite方法中设置
       oop appendix = appendix_box->obj_at(0);
       if (TraceMethodHandles) {
     #ifndef PRODUCT
@@ -2404,6 +2408,7 @@ static methodHandle unpack_method_and_appendix(Handle mname,
         tty->cr();
     #endif //PRODUCT
       }
+      // 将该对象包装为Handle指针，方便计算
       (*appendix_result) = Handle(THREAD, appendix);
       // the target is stored in the cpCache and if a reference to this
       // MethodName is dropped we need a way to make sure the
@@ -2411,6 +2416,8 @@ static methodHandle unpack_method_and_appendix(Handle mname,
       // FIXME: the appendix might also preserve this dependency.
       ClassLoaderData* this_key = InstanceKlass::cast(accessing_klass())->class_loader_data();
       this_key->record_dependency(m->method_holder(), CHECK_NULL); // Can throw OOM
+      // 将调用方法包装为methodHandle指针，方便计算
+      // （这是C++的运算符重载，这里MethodHandle就等于Method* m指针，而该方法将是我们后面需要执行的方法，也即invokedynamic字节码指令执行的最后的call_method）
       return methodHandle(THREAD, m);
     }
   }
@@ -2561,6 +2568,7 @@ Handle SystemDictionary::find_method_handle_type(Symbol* signature,
 }
 
 // Ask Java code to find or construct a method handle constant.
+// 解析MethodHandle的核心方法，MethodHandle的方法链接
 Handle SystemDictionary::link_method_handle_constant(KlassHandle caller,
                                                      int ref_kind, //e.g., JVM_REF_invokeVirtual
                                                      KlassHandle callee,
@@ -2602,12 +2610,14 @@ Handle SystemDictionary::link_method_handle_constant(KlassHandle caller,
                          SystemDictionary::MethodHandleNatives_klass(),
                          vmSymbols::linkMethodHandleConstant_name(),
                          vmSymbols::linkMethodHandleConstant_signature(),
-                         &args, CHECK_(empty));
+                         &args, CHECK_(empty)); // 完成实际调用
+  // 包装调用结果返回的MethodHandle对象
   return Handle(THREAD, (oop) result.get_jobject());
 }
 
 // Ask Java code to find or construct a java.lang.invoke.CallSite for the given
 // name and signature, as interpreted relative to the given class loader.
+// 获取到调用callsite的调用方法
 methodHandle SystemDictionary::find_dynamic_call_site_invoker(KlassHandle caller,
                                                               Handle bootstrap_specifier,
                                                               Symbol* name,
@@ -2618,6 +2628,7 @@ methodHandle SystemDictionary::find_dynamic_call_site_invoker(KlassHandle caller
   methodHandle empty;
   Handle bsm, info;
   if (java_lang_invoke_MethodHandle::is_instance(bootstrap_specifier())) {
+    // bootstrap_specifier 为 MethodHandle 实例，那么将其设置为bsm
     bsm = bootstrap_specifier;
   } else {
     assert(bootstrap_specifier->is_objArray(), "");
@@ -2635,7 +2646,9 @@ methodHandle SystemDictionary::find_dynamic_call_site_invoker(KlassHandle caller
   guarantee(java_lang_invoke_MethodHandle::is_instance(bsm()),
             "caller must supply a valid BSM");
 
+  // 方法名
   Handle method_name = java_lang_String::create_from_symbol(name, CHECK_(empty));
+  // 方法类型
   Handle method_type = find_method_handle_type(type, caller, CHECK_(empty));
 
   // This should not happen.  JDK code should take care of that.
@@ -2647,14 +2660,14 @@ methodHandle SystemDictionary::find_dynamic_call_site_invoker(KlassHandle caller
   assert(appendix_box->obj_at(0) == NULL, "");
 
   // call java.lang.invoke.MethodHandleNatives::linkCallSite(caller, bsm, name, mtype, info, &appendix)
-  JavaCallArguments args;
+  JavaCallArguments args; // 构建参数列表
   args.push_oop(caller->java_mirror());
-  args.push_oop(bsm());
+  args.push_oop(bsm()); // 传入了MethodHandle
   args.push_oop(method_name());
   args.push_oop(method_type());
   args.push_oop(info());
   args.push_oop(appendix_box);
-  JavaValue result(T_OBJECT);
+  JavaValue result(T_OBJECT); // 保存结果
   JavaCalls::call_static(&result,
                          SystemDictionary::MethodHandleNatives_klass(),
                          vmSymbols::linkCallSite_name(),
@@ -2662,6 +2675,7 @@ methodHandle SystemDictionary::find_dynamic_call_site_invoker(KlassHandle caller
                          &args, CHECK_(empty));
   Handle mname(THREAD, (oop) result.get_jobject());
   (*method_type_result) = method_type;
+  // 调用完毕后将method和appendix解包
   return unpack_method_and_appendix(mname, caller, appendix_box, appendix_result, THREAD);
 }
 

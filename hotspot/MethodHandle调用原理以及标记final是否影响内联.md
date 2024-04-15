@@ -58,6 +58,17 @@ FinalMethod::testFinal <待定> -> 此为自己写的Java方法
 
 那就剩下了`MethodHandle::invokeBasic`调用树了，而这个里面就`type->is_constant()`，如果是`final`就会被内联，否则包括`MethodHandle::linkToStatic`和`FinalMethod::testFinal`均不会内联，从而影响到性能。
 
+#### 是否字段必须添加final？
+
+`try_method_handle_inline`方法中会判断`type->is_constant()`，其实编译器不只是判断有无final。编译器认为下面的任一情况满足，一个字段即是常量：
+
+- 字段有`final`修饰、且有`static`修饰、且不是`java.clang.System`类的`in\out\err`且不在类初始化器外被修改；
+- 字段有`@Stable`注解且非空；
+- 字段有`final`修饰且字段在一些信任包（比如包`java.lang.invoke`，具体的包列举在`ciField::trust_final_non_static_fields`方法里）的类里面；
+- 字段是`CallSite`类的`target`字段、且不在实例初始化器（构造函数）外被修改。
+
+字段是否为常量的说明在`ciField::is_constant`的注释里面，实现代码在`ciField::initialize_from`方法里。
+
 参考文档：
 
 [MethodHandle标记final影响内联问题？](https://www.zhihu.com/question/535373016/answer/2517526289?utm_id=0)

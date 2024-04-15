@@ -625,6 +625,7 @@ void ConstantPool::save_and_throw_exception(constantPoolHandle this_oop, int whi
 // Called to resolve constants in the constant pool and return an oop.
 // Some constant pool entries cache their resolved oop. This is also
 // called to create oops from constants to use in arguments for invokedynamic
+// 完成实际常量池解析
 oop ConstantPool::resolve_constant_at_impl(constantPoolHandle this_oop, int index, int cache_index, TRAPS) {
   oop result_oop = NULL;
   Handle throw_exception;
@@ -649,6 +650,9 @@ oop ConstantPool::resolve_constant_at_impl(constantPoolHandle this_oop, int inde
 
   jvalue prim_value;  // temp used only in a few cases below
 
+  // 获取该索引下标指向的常量池下标表示的常量池类型
+  // （class的内部存储的 BootstrapMethods: 0: #20 ，#20 = MethodHandle       #6:#33 ）
+  // 所以我们这里只需要看MethodHandle即可
   int tag_value = this_oop->tag_at(index).value();
 
   switch (tag_value) {
@@ -685,23 +689,28 @@ oop ConstantPool::resolve_constant_at_impl(constantPoolHandle this_oop, int inde
 
   case JVM_CONSTANT_MethodHandle:
     {
+      // 获取到MethodHandle 的引用类型（这里为invoke_static）
       int ref_kind                 = this_oop->method_handle_ref_kind_at(index);
+      // // 获取到指向 Methodref 的索引
       int callee_index             = this_oop->method_handle_klass_index_at(index);
+      // 获取到类名（这里为：java/lang/invoke/LambdaMetafactory.metafactory）
       Symbol*  name =      this_oop->method_handle_name_ref_at(index);
+      // 获取到方法签名
       Symbol*  signature = this_oop->method_handle_signature_ref_at(index);
       if (PrintMiscellaneous)
         tty->print_cr("resolve JVM_CONSTANT_MethodHandle:%d [%d/%d/%d] %s.%s",
                       ref_kind, index, this_oop->method_handle_index_at(index),
                       callee_index, name->as_C_string(), signature->as_C_string());
-      KlassHandle callee;
+      KlassHandle callee; // 首先获取到LambdaMetafactory的类对象
       { Klass* k = klass_at_impl(this_oop, callee_index, CHECK_NULL);
         callee = KlassHandle(THREAD, k);
       }
       KlassHandle klass(THREAD, this_oop->pool_holder());
+      // 完成方法的链接，核心方法 hotspot/src/share/vm/classfile/systemDictionary.cpp
       Handle value = SystemDictionary::link_method_handle_constant(klass, ref_kind,
                                                                    callee, name, signature,
                                                                    THREAD);
-      result_oop = value();
+      result_oop = value(); // 返回链接对象
       if (HAS_PENDING_EXCEPTION) {
         save_and_throw_exception(this_oop, index, tag_value, CHECK_NULL);
       }
@@ -785,7 +794,7 @@ oop ConstantPool::uncached_string_at(int which, TRAPS) {
   return str;
 }
 
-
+// 解析bsm核心方法
 oop ConstantPool::resolve_bootstrap_specifier_at_impl(constantPoolHandle this_oop, int index, TRAPS) {
   assert(this_oop->tag_at(index).is_invoke_dynamic(), "Corrupted constant pool");
 
@@ -795,13 +804,17 @@ oop ConstantPool::resolve_bootstrap_specifier_at_impl(constantPoolHandle this_oo
     // JVM_CONSTANT_InvokeDynamic is an ordered pair of [bootm, name&type], plus optional arguments
     // The bootm, being a JVM_CONSTANT_MethodHandle, has its own cache entry.
     // It is accompanied by the optional arguments.
+    // 获取 InvokeDynamic 指向 bsm 的下标
     int bsm_index = this_oop->invoke_dynamic_bootstrap_method_ref_index_at(index);
+    // 解析并获取到MethodHandle对象（一个前提：oop 就是Java中的对象，这里是指向该对象的指针）
     oop bsm_oop = this_oop->resolve_possibly_cached_constant_at(bsm_index, CHECK_NULL);
+    // bsm描述对象必须为MethodHandle类的实例
     if (!java_lang_invoke_MethodHandle::is_instance(bsm_oop)) {
       THROW_MSG_NULL(vmSymbols::java_lang_LinkageError(), "BSM not an MethodHandle");
     }
 
     // Extract the optional static arguments.
+    // 如果有额外的静态参数，那么提取额外的参数
     argc = this_oop->invoke_dynamic_argument_count_at(index);
     if (argc == 0)  return bsm_oop;
 
@@ -815,8 +828,10 @@ oop ConstantPool::resolve_bootstrap_specifier_at_impl(constantPoolHandle this_oo
   }
 
   info->obj_at_put(0, bsm());
+  // 应该是解析method的调用参数信息
   for (int i = 0; i < argc; i++) {
     int arg_index = this_oop->invoke_dynamic_argument_index_at(index, i);
+    // 解析MethodHandle对象，调用的就是本文件内的 resolve_constant_at_impl() 方法
     oop arg_oop = this_oop->resolve_possibly_cached_constant_at(arg_index, CHECK_NULL);
     info->obj_at_put(1+i, arg_oop);
   }

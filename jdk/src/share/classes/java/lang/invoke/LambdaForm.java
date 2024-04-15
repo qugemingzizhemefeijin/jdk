@@ -430,15 +430,28 @@ class LambdaForm {
      * (In principle, the JVM could do this very lazily,
      * as a sort of pre-invocation linkage step.)
      */
+    /*
+      final class LambdaForm$MH026 {
+            @Hidden
+            @Compiled
+            @ForceInline
+            static Object identity_006_L(Object var0) {
+                return ((BoundMethodHandle.Species_L)var0).argL0;
+            }
+        }
+     */
     public void prepare() {
         if (COMPILE_THRESHOLD == 0) {
-            compileToBytecode();
+            compileToBytecode(); // 编译字节码
         }
         if (this.vmentry != null) {
             // already prepared (e.g., a primitive DMH invoker form)
             return;
         }
         LambdaForm prep = getPreparedForm(basicTypeSignature());
+        // vmentry中记录了当前MethodHandle的native方法真正调用的方法
+        // HotSpot的JIT会根据常量MethodHandle中的vmentry值重新组装成
+        // invokestatic或invokespecial或invokevirtual或invokeinterface然后进行内联分析。
         this.vmentry = prep.vmentry;
         // TO DO: Maybe add invokeGeneric, invokeWithArguments
     }

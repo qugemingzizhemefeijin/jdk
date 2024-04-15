@@ -1573,26 +1573,30 @@ void LinkResolver::resolve_handle_call(CallInfo& result, KlassHandle resolved_kl
   result.set_handle(resolved_method, resolved_appendix, resolved_method_type, CHECK);
 }
 
-
+// 对invokedynamic的解析
 void LinkResolver::resolve_invokedynamic(CallInfo& result, constantPoolHandle pool, int index, TRAPS) {
   assert(EnableInvokeDynamic, "");
 
   //resolve_pool(<resolved_klass>, method_name, method_signature, current_klass, pool, index, CHECK);
-  Symbol* method_name       = pool->name_ref_at(index);
-  Symbol* method_signature  = pool->signature_ref_at(index);
-  KlassHandle current_klass = KlassHandle(THREAD, pool->pool_holder());
+  Symbol* method_name       = pool->name_ref_at(index);                 // 获取到方法名
+  Symbol* method_signature  = pool->signature_ref_at(index);            // 获取到方法签名
+  KlassHandle current_klass = KlassHandle(THREAD, pool->pool_holder()); // 获取当前常量池表示的类对象这里为Demo.class的对象
 
   // Resolve the bootstrap specifier (BSM + optional arguments).
+  // 解析bootstrap方法
   Handle bootstrap_specifier;
   // Check if CallSite has been bound already:
   ConstantPoolCacheEntry* cpce = pool->invokedynamic_cp_cache_entry_at(index);
+  // 开始解析bsm（BootStrapMethod）
   if (cpce->is_f1_null()) {
     int pool_index = cpce->constant_pool_index();
+    // 核心方法，解析bsm,在constantPool.cpp中实现的resolve_bootstrap_specifier_at_impl()方法
     oop bsm_info = pool->resolve_bootstrap_specifier_at(pool_index, CHECK);
     assert(bsm_info != NULL, "");
     // FIXME: Cache this once per BootstrapMethods entry, not once per CONSTANT_InvokeDynamic.
-    bootstrap_specifier = Handle(THREAD, bsm_info);
+    bootstrap_specifier = Handle(THREAD, bsm_info); // 获取BootstrapMethod的描述对象
   }
+  // 如果之前已经完成解析，那么直接将解析后的结果放入CallInfo即可
   if (!cpce->is_f1_null()) {
     methodHandle method(     THREAD, cpce->f1_as_method());
     Handle       appendix(   THREAD, cpce->appendix_if_resolved(pool));
@@ -1609,6 +1613,7 @@ void LinkResolver::resolve_invokedynamic(CallInfo& result, constantPoolHandle po
     tty->print("  BSM info: "); bootstrap_specifier->print();
   }
 
+  // 当完成实际解析之后的调用
   resolve_dynamic_call(result, bootstrap_specifier, method_name, method_signature, current_klass, CHECK);
 }
 
@@ -1621,13 +1626,14 @@ void LinkResolver::resolve_dynamic_call(CallInfo& result,
   // The appendix argument is likely to be a freshly-created CallSite.
   Handle       resolved_appendix;
   Handle       resolved_method_type;
+  // 获取到调用callsite的调用方法
   methodHandle resolved_method =
     SystemDictionary::find_dynamic_call_site_invoker(current_klass,
                                                      bootstrap_specifier,
                                                      method_name, method_signature,
                                                      &resolved_appendix,
                                                      &resolved_method_type,
-                                                     THREAD);
+                                                     THREAD); // 解析方法
   if (HAS_PENDING_EXCEPTION) {
     if (TraceMethodHandles) {
       tty->print_cr("invokedynamic throws BSME for "INTPTR_FORMAT, (void *)PENDING_EXCEPTION);
@@ -1646,6 +1652,7 @@ void LinkResolver::resolve_dynamic_call(CallInfo& result,
     CLEAR_PENDING_EXCEPTION;
     THROW_CAUSE(vmSymbols::java_lang_BootstrapMethodError(), nested_exception)
   }
+  // 将解析后的信息放入CallInfo
   result.set_handle(resolved_method, resolved_appendix, resolved_method_type, CHECK);
 }
 

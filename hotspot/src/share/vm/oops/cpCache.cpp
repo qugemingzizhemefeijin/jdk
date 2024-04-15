@@ -268,6 +268,7 @@ void ConstantPoolCacheEntry::set_method_handle(constantPoolHandle cpool, const C
   set_method_handle_common(cpool, Bytecodes::_invokehandle, call_info);
 }
 
+// 将解析后的CallInfo的信息放入cp_cache_entry对象中
 void ConstantPoolCacheEntry::set_dynamic_call(constantPoolHandle cpool, const CallInfo &call_info) {
   set_method_handle_common(cpool, Bytecodes::_invokedynamic, call_info);
 }
@@ -289,9 +290,9 @@ void ConstantPoolCacheEntry::set_method_handle_common(constantPoolHandle cpool,
     return;
   }
 
-  const methodHandle adapter = call_info.resolved_method();
-  const Handle appendix      = call_info.resolved_appendix();
-  const Handle method_type   = call_info.resolved_method_type();
+  const methodHandle adapter = call_info.resolved_method();     // 解析后的方法
+  const Handle appendix      = call_info.resolved_appendix();   // 解析后的appendix对象
+  const Handle method_type   = call_info.resolved_method_type();// 解析后的方法类型
   const bool has_appendix    = appendix.not_null();
   const bool has_method_type = method_type.not_null();
 
@@ -331,8 +332,9 @@ void ConstantPoolCacheEntry::set_method_handle_common(constantPoolHandle cpool,
   // This allows us to create fewer method oops, while keeping type safety.
   //
 
-  objArrayHandle resolved_references = cpool->resolved_references();
+  objArrayHandle resolved_references = cpool->resolved_references(); // 保存常量池中已经解析的对象引用，也即实际对象的地址
   // Store appendix, if any.
+  // 将appendix存储到resolved_references中
   if (has_appendix) {
     const int appendix_index = f2_as_index() + _indy_resolved_references_appendix_offset;
     assert(appendix_index >= 0 && appendix_index < resolved_references->length(), "oob");
@@ -341,6 +343,7 @@ void ConstantPoolCacheEntry::set_method_handle_common(constantPoolHandle cpool,
   }
 
   // Store MethodType, if any.
+  // 将method_type存储到resolved_references中
   if (has_method_type) {
     const int method_type_index = f2_as_index() + _indy_resolved_references_method_type_offset;
     assert(method_type_index >= 0 && method_type_index < resolved_references->length(), "oob");

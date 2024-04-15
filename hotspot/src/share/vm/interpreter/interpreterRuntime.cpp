@@ -776,14 +776,17 @@ IRT_ENTRY(void, InterpreterRuntime::resolve_invokedynamic(JavaThread* thread)) {
   // resolve method
   CallInfo info;
   constantPoolHandle pool(thread, method(thread)->constants());
-  int index = get_index_u4(thread, bytecode);
+  int index = get_index_u4(thread, bytecode); // 获取常量池索引下标
   {
     JvmtiHideSingleStepping jhss(thread);
+    // 核心方法
     LinkResolver::resolve_invoke(info, Handle(), pool,
                                  index, bytecode, CHECK);
   } // end JvmtiHideSingleStepping
 
+  // 解析完成后将解析后的信息保存到cp_cache_entry运行时信息中保存
   ConstantPoolCacheEntry* cp_cache_entry = pool->invokedynamic_cp_cache_entry_at(index);
+  // 将解析后的CallInfo的信息放入cp_cache_entry对象中
   cp_cache_entry->set_dynamic_call(pool, info);
 }
 IRT_END
