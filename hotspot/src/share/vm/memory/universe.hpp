@@ -215,7 +215,7 @@ class Universe: AllStatic {
   static int  _base_vtable_size;                      // Java vtbl size of klass Object (in words)
 
   // Initialization
-  static bool _bootstrapping;                         // true during genesis
+  static bool _bootstrapping;                         // true during genesis            // 是否处于引导过程
   static bool _fully_initialized;                     // true after universe_init and initialize_vtables called
 
   // the array of preallocated errors with backtraces

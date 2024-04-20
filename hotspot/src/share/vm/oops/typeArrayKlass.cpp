@@ -73,6 +73,7 @@ TypeArrayKlass* TypeArrayKlass::create_klass(BasicType type,
 
   // Call complete_create_array_klass after all instance variables have been initialized.
   // 初始化所有实例变量后调用，初始化TypeArrayKlass中的属性
+  // ak->super()即父类 --->>> ArrayKlass:initialize_supers -> Klass:initialize_supers
   complete_create_array_klass(ak, ak->super(), CHECK_NULL);
 
   return ak;
@@ -106,7 +107,7 @@ TypeArrayKlass* TypeArrayKlass::allocate(ClassLoaderData* loader_data, BasicType
   // return lh;
 // }
 
-// TypeArrayKlass构造函数
+// TypeArrayKlass构造函数，这里会默认调用父类的构造函数 ArrayKlass(name) ，来初始化super属性 ArrayKlass::ArrayKlass(Symbol* name)
 TypeArrayKlass::TypeArrayKlass(BasicType type, Symbol* name) : ArrayKlass(name) {
   // 计算出Klass中的_layout_helper属性值
   // array_layout_helper函数在hotspot/src/share/vm/oops/klass.cpp

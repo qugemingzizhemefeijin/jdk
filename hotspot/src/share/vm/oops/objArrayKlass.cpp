@@ -78,6 +78,7 @@ Klass* ObjArrayKlass::allocate_objArray_klass(ClassLoaderData* loader_data,
   // Eagerly allocate the direct array supertype.
   KlassHandle super_klass = KlassHandle();
   if (!Universe::is_bootstrapping() || SystemDictionary::Object_klass_loaded()) {
+    // 获取数组的父类
     KlassHandle element_super (THREAD, element_klass->super());
     if (element_super.not_null()) {
       // The element type has a direct super.  E.g., String[] has direct super of Object[].
@@ -85,6 +86,7 @@ Klass* ObjArrayKlass::allocate_objArray_klass(ClassLoaderData* loader_data,
       bool supers_exist = super_klass.not_null();
       // Also, see if the element has secondary supertypes.
       // We need an array type for each.
+      // 数组的所有接口类和在_secondary_supers中的类也必须初始化过了
       Array<Klass*>* element_supers = element_klass->secondary_supers();
       for( int i = element_supers->length()-1; i >= 0; i-- ) {
         Klass* elem_super = element_supers->at(i);
@@ -97,6 +99,7 @@ Klass* ObjArrayKlass::allocate_objArray_klass(ClassLoaderData* loader_data,
         // Oops.  Not allocated yet.  Back out, allocate it, and retry.
         KlassHandle ek;
         {
+          // 加锁并重新初始化所有的数组父类
           MutexUnlocker mu(MultiArray_lock);
           MutexUnlocker mc(Compile_lock);   // for vtables
           Klass* sk = element_super->array_klass(CHECK_0);
@@ -105,7 +108,7 @@ Klass* ObjArrayKlass::allocate_objArray_klass(ClassLoaderData* loader_data,
             KlassHandle elem_super (THREAD, element_supers->at(i));
             elem_super->array_klass(CHECK_0);
           }
-          // Now retry from the beginning
+          // Now retry from the beginning // 相当于递归调用
           Klass* klass_oop = element_klass->array_klass(n, CHECK_0);
           // Create a handle because the enclosing brace, when locking
           // can cause a gc.  Better to have this function return a Handle.

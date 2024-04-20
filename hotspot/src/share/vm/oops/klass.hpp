@@ -165,12 +165,25 @@ class Klass : public Metadata {
   // Klass指针，保存上一次查询父类的结果
   Klass*      _secondary_super_cache;
   // Array of all secondary supertypes
-  // Klass指针数组，一般存储Java类实现的接口，偶尔还会存储Java类及其父类
+  // Klass指针数组，一般存储Java类实现的接口，偶尔还会存储Java类及其父类（如果继承父类的深度超过了8个）
+  // 如class Test1 不继承和实现任何接口和类，则Test1[][]的 _secondary_supers = Cloneable[接口], Serializable[接口],
+  // [Ljava/lang/Cloneable [类，ACC_SYNTHETIC (不由用户代码生成)], [Ljava/io/Serializeable [类，ACC_SYNTHETIC (不由用户代码生成)]
+  // 所有的数组类型必须实现Cloneable接口 (See JLS 20.1.5)
+  // 0x000002701b400a70	0x0000000000000004			_secondary_supers.length = 4
+  // 0x000002701b400a78	0x000002701b014210			Cloneable
+  // 0x000002701b400a80	0x000002701b003220			Serializeable
+  // 0x000002701b400a88	0x000002701b15d630			[Ljava/lang/Cloneable
+  // 0x000002701b400a90	0x000002701b0bd290			[Ljava/io/Serializeable
   Array<Klass*>* _secondary_supers;
   // Ordered list of all primary supertypes
   // 代表这个类的父类，其类型是一个Klass指针数组，大小固定是8。例如，IOException是Exception的子类，而Exception又是Throwable的子类，
   // 因此表示IOException类的_primary_supers属性值为[Throwable,Exception,IOException]。
   // 如果继承链过长，即当前类加上继承的类多于8个（默认值，可通过命令更改）时，会将多出来的类存储到_secondary_supers数组中。
+  // 如class Test1 不继承和实现任何接口和类，则Test1[][]的 _primary_supers = [[LTest1 [自身], [[Ljava/lang/Object, [Ljava/lang/Object, Object
+  // 0x000002701b4008b8	0x000002701b001c00			Object
+  // 0x000002701b4008c0	0x000002701b0bca60			[Ljava/lang/Object;
+  // 0x000002701b4008c8	0x000002701b2b4c40			[[Ljava/lang/Object;
+  // 0x000002701b4008d0	0x000002701b400890			[[LTest1;
   Klass*      _primary_supers[_primary_super_limit];
   // java/lang/Class instance mirroring this class
   // oopDesc*类型，保存的是当前Klass实例表示的Java类所对应的java.lang.Class对象，可以据此访问类的静态属性
@@ -448,8 +461,13 @@ class Klass : public Metadata {
   // subtype check: true if is_subclass_of, or if k is interface and receiver implements it
   // 判断当前类是否为k的子类。k可能为接口，如果当前类型实现了k接口，函数也返回true
   bool is_subtype_of(Klass* k) const {
+    // 返回k的类在 _primary_supers 中的位置
     juint    off = k->super_check_offset();
     Klass* sup = *(Klass**)( (address)this + off );
+    // 获取 _secondary_supers 的偏移位置
+    // 一个类的继承联如果超过8个，那么其本身自己肯定在 在 _secondary_supers 中。
+    // 并且其 _super_check_offset == secondary_offset。
+    // secondary_super_cache_offset()是直接获取偏移
     const juint secondary_offset = in_bytes(secondary_super_cache_offset());
     // 如果k在_primary_supers中， 那么利用_primary_supers一定能判断出k与当前类的父子关系
     if (sup == k) {
@@ -460,6 +478,7 @@ class Klass : public Metadata {
       return false;
     } else {
       // 可能有父子关系， 需要进一步判断（父类不在子类的_primary_supers的属性中）
+      // 这里会循环搜索 secondary_supers
       return search_secondary_supers(k);
     }
   }

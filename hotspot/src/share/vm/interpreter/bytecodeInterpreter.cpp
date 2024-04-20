@@ -2091,10 +2091,13 @@ run:
             u2 index = Bytes::get_Java_u2(pc+1);
             // Constant pool may have actual klass or unresolved klass. If it is
             // unresolved we must resolve it
+            // 断言确保是klassOop和instanceKlassOop
             if (METHOD->constants()->tag_at(index).is_unresolved_klass()) {
               CALL_VM(InterpreterRuntime::quicken_io_cc(THREAD), handle_exception);
             }
+            // 获取要判断的父类的Klass，也就是instanceOf 右侧的类
             Klass* klassOf = (Klass*) METHOD->constants()->slot_at(index).get_klass();
+            // instanceOf 左侧的对象
             Klass* objKlassOop = STACK_OBJECT(-1)->klass();
             //
             // Check for compatibilty. This check must not GC!!

@@ -77,6 +77,7 @@ Method* ArrayKlass::uncached_lookup_method(Symbol* name, Symbol* signature) cons
 ArrayKlass::ArrayKlass(Symbol* name) {
   set_name(name);
 
+  // Universe::is_bootstrapping() 表示当前是否处于JVM的引导阶段
   set_super(Universe::is_bootstrapping() ? (Klass*)NULL : SystemDictionary::Object_klass());
   set_layout_helper(Klass::_lh_neutral_value);
   set_dimension(1);

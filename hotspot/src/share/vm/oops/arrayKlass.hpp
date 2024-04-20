@@ -141,6 +141,7 @@ class ArrayKlass: public Klass {
   virtual void oops_do(OopClosure* cl);
 
   // Return a handle.
+  // 初始化TypeArrayKlass中的属性
   static void     complete_create_array_klass(ArrayKlass* k, KlassHandle super_klass, TRAPS);
 
 
