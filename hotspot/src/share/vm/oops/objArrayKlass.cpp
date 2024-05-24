@@ -78,10 +78,11 @@ Klass* ObjArrayKlass::allocate_objArray_klass(ClassLoaderData* loader_data,
   // Eagerly allocate the direct array supertype.
   KlassHandle super_klass = KlassHandle();
   if (!Universe::is_bootstrapping() || SystemDictionary::Object_klass_loaded()) {
-    // 获取数组的父类
+    // 获取数组元素的父类
     KlassHandle element_super (THREAD, element_klass->super());
     if (element_super.not_null()) {
       // The element type has a direct super.  E.g., String[] has direct super of Object[].
+      // 根据父元素创建父元素维度+1的数据
       super_klass = KlassHandle(THREAD, element_super->array_klass_or_null());
       bool supers_exist = super_klass.not_null();
       // Also, see if the element has secondary supertypes.
@@ -90,6 +91,7 @@ Klass* ObjArrayKlass::allocate_objArray_klass(ClassLoaderData* loader_data,
       Array<Klass*>* element_supers = element_klass->secondary_supers();
       for( int i = element_supers->length()-1; i >= 0; i-- ) {
         Klass* elem_super = element_supers->at(i);
+        // 判断父接口的数组类型只要有一个未初始化，则直接触发下面的加锁创建数组
         if (elem_super->array_klass_or_null() == NULL) {
           supers_exist = false;
           break;
@@ -99,7 +101,7 @@ Klass* ObjArrayKlass::allocate_objArray_klass(ClassLoaderData* loader_data,
         // Oops.  Not allocated yet.  Back out, allocate it, and retry.
         KlassHandle ek;
         {
-          // 加锁并重新初始化所有的数组父类
+          // 加锁并重新初始化所有维度的父类数组以及接口数组
           MutexUnlocker mu(MultiArray_lock);
           MutexUnlocker mc(Compile_lock);   // for vtables
           Klass* sk = element_super->array_klass(CHECK_0);
@@ -336,10 +338,10 @@ void ObjArrayKlass::copy_array(arrayOop s, int src_pos, arrayOop d,
 Klass* ObjArrayKlass::array_klass_impl(bool or_null, int n, TRAPS) {
 
   assert(dimension() <= n, "check order of chain");
-  int dim = dimension();
+  int dim = dimension(); // 获取当前数组的维度
   if (dim == n) return this;
 
-  if (higher_dimension() == NULL) {
+  if (higher_dimension() == NULL) { // higher_dimension()指向 dim + 1维度的数组
     if (or_null)  return NULL;
 
     ResourceMark rm;
@@ -350,7 +352,7 @@ Klass* ObjArrayKlass::array_klass_impl(bool or_null, int n, TRAPS) {
       MutexLocker mu(MultiArray_lock, THREAD);
 
       // Check if another thread beat us
-      if (higher_dimension() == NULL) {
+      if (higher_dimension() == NULL) { // dim + 1维度的数据没有创建过则触发创建
 
         // Create multi-dim klass object and link them together
         // 以当前的ObjArrayKlass实例为组件类型，创建比当前dim维度多一维度的数组
@@ -389,19 +391,32 @@ bool ObjArrayKlass::can_be_primary_super_slow() const {
     return Klass::can_be_primary_super_slow();
 }
 
+// 设置数组的 _secondary_supers 属性
 GrowableArray<Klass*>* ObjArrayKlass::compute_secondary_supers(int num_extra_slots) {
   // interfaces = { cloneable_klass, serializable_klass, elemSuper[], ... };
+  // 获取数组元素类型所有的接口实现
   Array<Klass*>* elem_supers = element_klass()->secondary_supers();
   int num_elem_supers = elem_supers == NULL ? 0 : elem_supers->length();
   int num_secondaries = num_extra_slots + 2 + num_elem_supers;
   if (num_secondaries == 2) {
     // Must share this for correct bootstrapping!
+    // 默认从 hotspot/src/share/vm/memory/universe.hpp 加载 _the_array_interfaces_array 属性
+    // 参见 hotspot/src/share/vm/memory/universe.cpp 311行
+    // SystemDictionary::Cloneable_klass()
+    // SystemDictionary::Serializable_klass()
     set_secondary_supers(Universe::the_array_interfaces_array());
     return NULL;
   } else {
+    // 这里会按照维度初始化父接口
     GrowableArray<Klass*>* secondaries = new GrowableArray<Klass*>(num_elem_supers+2);
+    // 所有的数组均实现Cloneable、Serializable接口
     secondaries->push(SystemDictionary::Cloneable_klass());
     secondaries->push(SystemDictionary::Serializable_klass());
+    // 创建当前数组元素所有接口类型维度多一个维度的数组
+    // 如 Test实现了A接口，那么Test[] 就会在这里创建 A[]接口的类型
+    // 注意哦：如果Test[][] 是无法 instanceof A[] ，因为这里是将接口数组类型维度+1，没有将A[] 加入到 _secondary_supers 中。
+    // 而为什么Test[][] 可以 instanceof Cloneable[]，是因为每次执行这段代码，都会将 Cloneable 加入到 _secondary_supers 中。
+    // 下次执行的更高维度的时候，Cloneable就会自动 + 1维度加入到 _secondary_supers 。
     for (int i = 0; i < num_elem_supers; i++) {
       Klass* elem_super = (Klass*) elem_supers->at(i);
       Klass* array_super = elem_super->array_klass_or_null();

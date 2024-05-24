@@ -465,7 +465,7 @@ class Klass : public Metadata {
     juint    off = k->super_check_offset();
     Klass* sup = *(Klass**)( (address)this + off );
     // 获取 _secondary_supers 的偏移位置
-    // 一个类的继承联如果超过8个，那么其本身自己肯定在 在 _secondary_supers 中。
+    // 一个类的继承链如果超过8个，那么其本身自己肯定在 在 _secondary_supers 中。
     // 并且其 _super_check_offset == secondary_offset。
     // secondary_super_cache_offset()是直接获取偏移
     const juint secondary_offset = in_bytes(secondary_super_cache_offset());

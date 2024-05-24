@@ -174,7 +174,7 @@ class Universe: AllStatic {
   static Array<Klass*>*  _the_empty_klass_array;  // Canonicalized klass obj array
   static Array<Method*>* _the_empty_method_array; // Canonicalized method obj array
 
-  static Array<Klass*>*  _the_array_interfaces_array;
+  static Array<Klass*>*  _the_array_interfaces_array; // 数组类应该竖线的接口集合，设置到数据Klass的 _secondary_supers 字段中
 
   // array of preallocated error objects with backtrace
   static objArrayOop   _preallocated_out_of_memory_error_array;

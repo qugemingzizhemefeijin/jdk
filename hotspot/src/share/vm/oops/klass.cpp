@@ -76,7 +76,7 @@ bool Klass::search_secondary_supers(Klass* k) const {
   // 通过_secondary_supers中存储的信息进行判断
   int cnt = secondary_supers()->length();
   for (int i = 0; i < cnt; i++) {
-    // 判断k是否是当前类的父类，如果是的话，顺便缓存一下父类信息到_secondary_super_cache。(空间换时间)
+    // 判断k是否是当前类的父类，如果是的话，顺便缓存一下父类信息到_secondary_super_cache
     if (secondary_supers()->at(i) == k) {
       ((Klass*)this)->set_secondary_super_cache(k);
       return true;

@@ -106,10 +106,16 @@ void ArrayKlass::complete_create_array_klass(ArrayKlass* k, KlassHandle super_kl
   java_lang_Class::create_mirror(k, Handle(NULL), CHECK);
 }
 
+// 此方法会在 objArrayKlass中重写，typeArrayKlass没有重写
 GrowableArray<Klass*>* ArrayKlass::compute_secondary_supers(int num_extra_slots) {
   // interfaces = { cloneable_klass, serializable_klass };
   assert(num_extra_slots == 0, "sanity of primitive array type");
   // Must share this for correct bootstrapping!
+  // 数组类型的默认行为
+  // 默认从 hotspot/src/share/vm/memory/universe.hpp 加载 _the_array_interfaces_array 属性
+  // 参见 hotspot/src/share/vm/memory/universe.cpp 311行
+  // SystemDictionary::Cloneable_klass()
+  // SystemDictionary::Serializable_klass()
   set_secondary_supers(Universe::the_array_interfaces_array());
   return NULL;
 }
