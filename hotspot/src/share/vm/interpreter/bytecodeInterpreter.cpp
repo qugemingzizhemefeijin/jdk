@@ -1458,31 +1458,64 @@ run:
       NULL_COMPARISON_NOT_OP(nonnull);
 
       /* Goto pc at specified offset in switch table. */
-
+      // Gen.java 1343行会判断如何编译成tableswitch和lookupswitch
       CASE(_tableswitch): {
           jint* lpc  = (jint*)VMalignWordUp(pc+1);
-          int32_t  key  = STACK_INT(-1);
-          int32_t  low  = Bytes::get_Java_u4((address)&lpc[1]);
-          int32_t  high = Bytes::get_Java_u4((address)&lpc[2]);
-          int32_t  skip;
+          int32_t  key  = STACK_INT(-1); // 从栈中加载switch的key
+          // 获取switch的最低值和最高值
+          int32_t  low  = Bytes::get_Java_u4((address)&lpc[1]); // 从 lpc 指向的内存地址中读取一个 Java u4 类型的值，作为 switch 表的最小值
+          int32_t  high = Bytes::get_Java_u4((address)&lpc[2]); // 从 lpc 指向的内存地址中读取一个 Java u4 类型的值，作为 switch 表的最大值
+          int32_t  skip; // 存储跳转偏移量
+          // 下面代码就是可以判断是否在范围内，如果不在范围内，则直接获取switch第0个位置
+          // 在编译的时候，第0个位置就是default应该跳转到地址偏移
+          // 在范围内的话，则会直接将索引地址+3获取到地址偏移，因为第0个表示default的字节跳转存储地址，1是low，2是high，所以需要+3来获取选项表中的跳转地址信息。
+          // 如AA 00 00 00 00 00 46 00 00 00 64 00 00 00 69 00 00 00 27
+          // AA是 tableswitch 字节码标识
+          // 00 00 00 46 是default的跳转的偏移量
+          // 00 00 00 64 表示 100
+          // 00 00 00 69 表示 105
+          // 00 00 00 27 表示 100 这个选项跳转的偏移量
+          /*
+          switch (a) {
+                case 100:
+                    break;
+                default: // 没有default也会默认一个生成到字节码中
+                    break;
+          */
           key -= low;
           skip = ((uint32_t) key > (uint32_t)(high - low))
                       ? Bytes::get_Java_u4((address)&lpc[0])
                       : Bytes::get_Java_u4((address)&lpc[key + 3]);
           // Does this really need a full backedge check (osr?)
-          address branch_pc = pc;
-          UPDATE_PC_AND_TOS(skip, -1);
-          DO_BACKEDGE_CHECKS(skip, branch_pc);
-          CONTINUE;
+          address branch_pc = pc; // 将当前的程序计数器 pc 的值保存到 branch_pc 中，用于后续的回边检查
+          UPDATE_PC_AND_TOS(skip, -1); // 更新程序计数器 pc 并且调整操作数栈的内容，实现跳转到目标位置并且将选择值从操作数栈中弹出
+          DO_BACKEDGE_CHECKS(skip, branch_pc); // 执行回边检查，可能是用于支持即时编译器的一些特性
+          CONTINUE; // 继续执行下一条指令
       }
 
       /* Goto pc whose table entry matches specified key */
 
       CASE(_lookupswitch): {
           jint* lpc  = (jint*)VMalignWordUp(pc+1);
-          int32_t  key  = STACK_INT(-1);
-          int32_t  skip = Bytes::get_Java_u4((address) lpc); /* default amount */
-          int32_t  npairs = Bytes::get_Java_u4((address) &lpc[1]);
+          int32_t  key  = STACK_INT(-1); // 从操作数栈中取出一个整数，作为 switch 语句的选择值
+          int32_t  skip = Bytes::get_Java_u4((address) lpc); /* default amount */ // 从 lpc 指向的内存地址中读取一个 Java u4 类型的值，作为默认的跳转偏移量
+          int32_t  npairs = Bytes::get_Java_u4((address) &lpc[1]); // 从 lpc+1 指向的内存地址中读取一个 Java u4 类型的值，表示跳转表中的键值对的数量
+          // AB 00 00 00 00 00 2F 00 00 00 03 00 00 00 64 00 00 00 23
+          // AB是 lookupswitch 字节码标识
+          // 00 00 00 2F 是default的跳转偏移量
+          // 00 00 00 03 是跳转表项目数量
+          // 00 00 00 64 表示 100
+          // 00 00 00 23 表示 跳转偏移量
+          /*
+            switch (a) {
+                case 100:
+                    break;
+                default: // 没有default也会默认一个生成到字节码中
+                    break;
+            }
+          */
+          // 使用 while 循环遍历跳转表中的键值对，每次循环 lpc 向后移动两个元素大小（因为4字节存储键，4字节存储值）
+          // 然后将选择值 key 与跳转表中的键进行比较，如果匹配则更新跳转偏移量为对应的值。
           while (--npairs >= 0) {
               lpc += 2;
               if (key == (int32_t)Bytes::get_Java_u4((address)lpc)) {
@@ -1490,10 +1523,10 @@ run:
                   break;
               }
           }
-          address branch_pc = pc;
-          UPDATE_PC_AND_TOS(skip, -1);
-          DO_BACKEDGE_CHECKS(skip, branch_pc);
-          CONTINUE;
+          address branch_pc = pc; // 将当前的程序计数器 pc 的值保存到 branch_pc 中，用于后续的回边检查
+          UPDATE_PC_AND_TOS(skip, -1); // 更新程序计数器 pc 并且调整操作数栈的内容，实现跳转到目标位置并且将选择值从操作数栈中弹出
+          DO_BACKEDGE_CHECKS(skip, branch_pc); // 执行回边检查，可能是用于支持即时编译器的一些特性
+          CONTINUE; // 继续执行下一条指令
       }
 
       CASE(_fcmpl):
