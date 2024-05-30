@@ -1337,6 +1337,7 @@ public class Gen extends JCTree.Visitor {
 
             // Determine whether to issue a tableswitch or a lookupswitch
             // instruction.
+            // 这段代码是决定switch语句最终是生成的tableswitch指令还是lookupswitch指令
             long table_space_cost = 4 + ((long) hi - lo + 1); // words
             long table_time_cost = 3; // comparisons
             long lookup_space_cost = 3 + 2 * (long) nlabels;
