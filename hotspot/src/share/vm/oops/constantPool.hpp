@@ -130,6 +130,8 @@ class ConstantPool : public Metadata {
   CPSlot slot_at(int which) {
     assert(is_within_bounds(which), "index out of bounds");
     // Uses volatile because the klass slot changes without a lock.
+    // OrderAccess::load_ptr_acquire 底层基于C++的volatile实现
+    // 因为volatile自带了编译器屏障的功能，总能拿到内存中的最新值。
     volatile intptr_t adr = (intptr_t)OrderAccess::load_ptr_acquire(obj_at_addr_raw(which));
     assert(adr != 0 || which == 0, "cp entry for klass should not be zero");
     return CPSlot(adr);
@@ -142,6 +144,7 @@ class ConstantPool : public Metadata {
   }
   intptr_t* obj_at_addr_raw(int which) const {
     assert(is_within_bounds(which), "index out of bounds");
+    // 这个是获取常量池数据区的第which的数据信息
     return (intptr_t*) &base()[which];
   }
 
