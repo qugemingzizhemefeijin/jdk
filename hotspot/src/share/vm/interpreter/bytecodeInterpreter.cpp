@@ -2089,15 +2089,23 @@ run:
             }
             // Constant pool may have actual klass or unresolved klass. If it is
             // unresolved we must resolve it
+            // METHOD == ConstMethod 对象
+            // constants() == ConstMethod的ConstantPool属性
+            // tag_at(index) == 从 ConstMethod的_constants下_tags属性的指定索引处加载constantTag类型
+            // is_unresolved_klass() 确保常量池中存放的是已解释的类
             if (METHOD->constants()->tag_at(index).is_unresolved_klass()) {
               CALL_VM(InterpreterRuntime::quicken_io_cc(THREAD), handle_exception);
             }
+            // METHOD->constants()->slot_at(index) 获取常量池在内存中的首地址并封装为 CPSlot 对象 ，并通过CPSlot获取其地址指向的Klass
+            // 如果内存布局 | ConstantPool | Klass | 这样子，就可以很方便的通过地址偏移来获取到Klass对象
             Klass* klassOf = (Klass*) METHOD->constants()->slot_at(index).get_klass();
+            // 获取要检查的栈顶对象的Klass对象
             Klass* objKlassOop = STACK_OBJECT(-1)->klass(); //ebx
             //
             // Check for compatibilty. This check must not GC!!
             // Seems way more expensive now that we must dispatch
             //
+            // 如果Klass不相等，并且栈顶对象类型不是需比较类型的子类，则抛出ClassCastException异常
             if (objKlassOop != klassOf &&
                 !objKlassOop->is_subtype_of(klassOf)) {
               ResourceMark rm(THREAD);
