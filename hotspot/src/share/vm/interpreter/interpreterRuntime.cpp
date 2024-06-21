@@ -146,10 +146,12 @@ IRT_END
 // Allocation
 
 IRT_ENTRY(void, InterpreterRuntime::_new(JavaThread* thread, ConstantPool* pool, int index))
+  // 获取常量池中索引为index的Klass指针
   Klass* k_oop = pool->klass_at(index, CHECK);
   instanceKlassHandle klass (THREAD, k_oop);
 
   // Make sure we are not instantiating an abstract klass
+  // 校验Klass是否是抽象类，接口或者java.lang.Class,如果是则抛出异常
   klass->check_valid_for_instantiation(true, CHECK);
 
   // Make sure klass is initialized // 确保klass已经完成初始化
@@ -169,7 +171,9 @@ IRT_ENTRY(void, InterpreterRuntime::_new(JavaThread* thread, ConstantPool* pool,
   //       Java).
   //       If we have a breakpoint, then we don't rewrite
   //       because the _breakpoint bytecode would be lost.
+  // hotspot/src/share/vm/oops/instanceKlass.cpp
   oop obj = klass->allocate_instance(CHECK);    // 为Java对象分配内存
+  // 将结果放到当前线程的_vm_result属性中，该属性专门用来传递解释器执行方法调用的结果
   thread->set_vm_result(obj);
 IRT_END
 

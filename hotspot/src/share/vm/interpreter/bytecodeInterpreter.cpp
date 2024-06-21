@@ -22,6 +22,10 @@
  *
  */
 
+// Hotspot有两个解释器，一种是基于switch-and-dispatch，一种基于汇编指令模板，因此new指令的实现有两个地方可以参考，对应的两种实现分别是：
+// hotspot/src/share/vm/interpreter/bytecodeInterpreter.cpp 【源码分析一般来此处看】
+// hotspot/src/cpu/x86/vm/templateTable_x86_64.cpp 【汇编模板方法】
+
 // no precompiled headers
 #include "classfile/vmSymbols.hpp"
 #include "gc_interface/collectedHeap.hpp"
@@ -1998,62 +2002,92 @@ run:
         }
 
       CASE(_new): {
+        // 获取操作数栈中目标类的符号引用在常量池的索引
         u2 index = Bytes::get_Java_u2(pc+1);
+        // 获取当前执行的方法的类的常量池，istate是当前字节码解释器BytecodeInterpreter实例的指针
         ConstantPool* constants = istate->method()->constants();
+        // 确保常量池中存放的是已解释的类
         if (!constants->tag_at(index).is_unresolved_klass()) {
-          // Make sure klass is initialized and doesn't have a finalizer
+          // Make sure klass is initialized and doesn't have a finalizer (确保 klass 已初始化并且没有实现 finalize 方法)
+          // 校验从常量池获取的解析结果Klass指针是否是InstanceKlass指针
           Klass* entry = constants->slot_at(index).get_klass();
           assert(entry->is_klass(), "Should be resolved klass");
           Klass* k_entry = (Klass*) entry;
           assert(k_entry->oop_is_instance(), "Should be InstanceKlass");
           InstanceKlass* ik = (InstanceKlass*) k_entry;
+          // 如果目标类已经完成初始化，并且可以使用快速分配的方式创建
           if ( ik->is_initialized() && ik->can_be_fastpath_allocated() ) {
+            // 获取目标类的对象大小
             size_t obj_size = ik->size_helper();
             oop result = NULL;
             // If the TLAB isn't pre-zeroed then we'll have to do it
+            // 如果TLAB没有预先初始化则必须在这里完成初始化，need_zero表示是否需要初始化（填充0），-XX:ZeroTLAB，默认是false
+            // -XX:+ZeroTLAB 的作用是确保在分配新的TLAB时，将该缓冲区中的所有字节初始化为零。这可能对某些程序有帮助，特别是在涉及安全性或调试的情况下，它能确保新分配的内存不包含任何旧数据。
+            // 这里如果 ZeroTLAB = true的话，则不需要在分配完内存将所有字节初始化0，因为TLAB自动帮我们做了。
+            // 如果是通过指针碰撞并在eden区分配，则默认需要将字节初始化为0。下面几行代码就有 need_zero = true 的设置。
             bool need_zero = !ZeroTLAB;
+            // 如果UseTLAB参数为true,在TLAB中分配对象内存
             if (UseTLAB) {
               result = (oop) THREAD->tlab().allocate(obj_size);
             }
+            // 如果TLAB空间分配失败
             if (result == NULL) {
               need_zero = true;
+              // 尝试在共享的eden区分配
               // Try allocate in shared eden
         retry:
+              // 获取当前未分配内存空间的起始地址
               HeapWord* compare_to = *Universe::heap()->top_addr();
+              // 起始地址加上目标类对象大小后，判断是否超过eden区的终止地址
               HeapWord* new_top = compare_to + obj_size;
               if (new_top <= *Universe::heap()->end_addr()) {
+                // 如果没有超过则通过原子CAS的方式尝试分配，分配失败就一直尝试直到不能分配为止
+                // cmpxchg_ptr 函数是比较 top_addr 的地址和 compare_to 的地址是否一样，如果一样则将 new_top 的地址写入 top_addr 中并返回 compare_to
+                // 如果不相等，即此时 eden 区分配了新对象，则返回 top_addr 新的地址，即返回结果不等于 compare_to
                 if (Atomic::cmpxchg_ptr(new_top, Universe::heap()->top_addr(), compare_to) != compare_to) {
                   goto retry;
                 }
                 result = (oop) compare_to;
               }
             }
+            // 如果分配成功
             if (result != NULL) {
               // Initialize object (if nonzero size and need) and then the header
               if (need_zero ) {
+                // 初始化内存空间并设置0值
                 HeapWord* to_zero = (HeapWord*) result + sizeof(oopDesc) / oopSize;
                 obj_size -= sizeof(oopDesc) / oopSize;
                 if (obj_size > 0 ) {
                   memset(to_zero, 0, obj_size * HeapWordSize);
                 }
               }
+              // 如果使用偏向锁
               if (UseBiasedLocking) {
+                // 设置对象头
                 result->set_mark(ik->prototype_header());
               } else {
+                // 返回的是一个关闭偏向模式的 prototype
                 result->set_mark(markOopDesc::prototype());
               }
+              // 设置oop的相关属性
               result->set_klass_gap(0);
               result->set_klass(k_entry);
+              // 将目标对象放到操作数栈的顶部
               SET_STACK_OBJECT(result, 0);
+              // 更新PC指令计数器，即告诉解释器此条new指令执行完毕，new指令总共3个字节，计数器加3
               UPDATE_PC_AND_TOS_AND_CONTINUE(3, 1);
             }
           }
         }
         // Slow case allocation
+        // 调用InterpreterRuntime::_new执行慢速分配
         CALL_VM(InterpreterRuntime::_new(THREAD, METHOD->constants(), index),
                 handle_exception);
+        // 分配的对象保存在vm_result中，将对象放到操作数栈的顶部
         SET_STACK_OBJECT(THREAD->vm_result(), 0);
+        // vm_result置空
         THREAD->set_vm_result(NULL);
+        // 更新PC指令计数器
         UPDATE_PC_AND_TOS_AND_CONTINUE(3, 1);
       }
       CASE(_anewarray): {

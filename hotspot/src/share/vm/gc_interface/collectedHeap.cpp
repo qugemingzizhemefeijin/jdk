@@ -264,6 +264,8 @@ HeapWord* CollectedHeap::allocate_from_tlab_slow(KlassHandle klass, Thread* thre
   // the amount free in the tlab is too large to discard.
   // 如果TLAB中的剩余空间太多，但是不足以为对象分配内存，则只能从年轻代的Eden空间或老年代中分配
   if (thread->tlab().free() > thread->tlab().refill_waste_limit()) {
+    // 如果剩余的空间大于允许refill浪费的空间则继续使用该TLAB，返回NULL后就将在Eden区分配内存，因为必须加锁，所以相对于
+    // 走TLAB是慢速分配
     thread->tlab().record_slow_allocation(size);
     return NULL;
   }
@@ -271,20 +273,27 @@ HeapWord* CollectedHeap::allocate_from_tlab_slow(KlassHandle klass, Thread* thre
   // Discard tlab and allocate a new one.
   // To minimize fragmentation, the last TLAB may be smaller than the rest.
   // 丢弃原TLAB，分配一个新的TLAB，首先计算新分配的TLAB的大小
+  // 如果剩余的空闲小于refill浪费的空间则丢弃当前线程的TLAB，重新分配一个新的
+  // 为了避免内存碎片化，新分配的TLAB会比之前分配的更小，compute_size就是计算待分配的TLAB的大小，如果返回0说明Eden区内存不足。
   size_t new_tlab_size = thread->tlab().compute_size(size);
 
+  // 这里的clear并不是释放当前TALB占用的内存，而是将剩余的允许浪费的空间用无意义的对象填充，让Eden区的内存是连续的
+  // 同时将top，end指针等置位NULL
   thread->tlab().clear_before_allocation();
 
   if (new_tlab_size == 0) {
+    // Eden区堆内存不足了，返回NULL，可能会触发Eden区的垃圾回收
     return NULL;
   }
 
   // Allocate a new TLAB... // 分配一个新的TLAB
   HeapWord* obj = Universe::heap()->allocate_new_tlab(new_tlab_size);
+  // 分配一个新的TLAB，有可能分配失败
   if (obj == NULL) {
     return NULL;
   }
 
+  // 发布事件通知
   AllocTracer::send_allocation_in_new_tlab_event(klass, new_tlab_size * HeapWordSize, size * HeapWordSize);
 
   if (ZeroTLAB) {
@@ -300,6 +309,7 @@ HeapWord* CollectedHeap::allocate_from_tlab_slow(KlassHandle klass, Thread* thre
     Copy::fill_to_words(obj + hdr_size, new_tlab_size - hdr_size, badHeapWordVal);
 #endif // ASSERT
   }
+  // 新分配的TLAB的属性初始化
   thread->tlab().fill(obj, obj + size, new_tlab_size);
   return obj;
 }
@@ -423,12 +433,14 @@ CollectedHeap::fill_with_array(HeapWord* start, size_t words, bool zap)
 {
   assert(words >= filler_array_min_size(), "too small for an array");
   assert(words <= filler_array_max_size(), "too big for a single object");
-
+  // 计算待填充的内存大小
   const size_t payload_size = words - filler_array_hdr_size();
+  // 待填充的int数组的长度
   const size_t len = payload_size * HeapWordSize / sizeof(jint);
   assert((int)len >= 0, err_msg("size too large " SIZE_FORMAT " becomes %d", words, (int)len));
 
   // Set the length first for concurrent GC.
+  // int数组填充
   ((arrayOop)start)->set_length((int)len);
   post_allocation_setup_common(Universe::intArrayKlassObj(), start);
   DEBUG_ONLY(zap_filler_array(start, words, zap);)

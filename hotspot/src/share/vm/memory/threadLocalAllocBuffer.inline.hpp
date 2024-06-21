@@ -62,12 +62,15 @@ inline HeapWord* ThreadLocalAllocBuffer::allocate(size_t size) {
 
 inline size_t ThreadLocalAllocBuffer::compute_size(size_t obj_size) {
   // 对象要按MinObjAlignment（值为8）字节对齐
+  // align_object_size方法用于将对象大小按照8字节向上取整，返回对象的字宽大小，例如对象是14字节，取整后就是16字节，返回2
   const size_t aligned_obj_size = align_object_size(obj_size);
 
   // Compute the size for the new TLAB.
   // The "last" tlab may be smaller to reduce fragmentation.
   // unsafe_max_tlab_alloc is just a hint.
   // 获取Eden空闲区的大小
+  // 估算当前Eden区可以为当前线程分配的TLAB内存的最大值，不会触发任何垃圾回收
+  // unsafe_max_tlab_alloc会保证为了减少内存碎片，分配的内存比其他的TLAB的小
   const size_t available_size = Universe::heap()->unsafe_max_tlab_alloc(myThread()) /
                                                   HeapWordSize;
   // 要计算出新分配的TLAB的大小，这个值要大于等于需要为对象分配的内存空间，
@@ -75,10 +78,11 @@ inline size_t ThreadLocalAllocBuffer::compute_size(size_t obj_size) {
   size_t new_tlab_size = MIN2(available_size, desired_size() + aligned_obj_size);
 
   // Make sure there's enough room for object and filler int[].
-  // 确保新的TLAB的内存大小要大于为对象分配的内存空间
+  // 确保新的TLAB的内存大小要大于为对象分配的内存空间，alignment_reserve方法返回TLAB中必须保留的内存大小，obj_plus_filler_size表示待分配内存的最低值
   const size_t obj_plus_filler_size = aligned_obj_size + alignment_reserve();
   if (new_tlab_size < obj_plus_filler_size) {
     // If there isn't enough room for the allocation, return failure.
+    // 如果没有足够的内存空间则分配失败
     if (PrintTLAB && Verbose) {
       gclog_or_tty->print_cr("ThreadLocalAllocBuffer::compute_size(" SIZE_FORMAT ")"
                     " returns failure",
@@ -86,6 +90,7 @@ inline size_t ThreadLocalAllocBuffer::compute_size(size_t obj_size) {
     }
     return 0;
   }
+  // 分配成功
   if (PrintTLAB && Verbose) {
     gclog_or_tty->print_cr("ThreadLocalAllocBuffer::compute_size(" SIZE_FORMAT ")"
                   " returns " SIZE_FORMAT,
@@ -105,7 +110,7 @@ void ThreadLocalAllocBuffer::record_slow_allocation(size_t obj_size) {
   // 如第一次从堆中分配的极限值是1%，那么下一次从堆中分配的极限值就是%1+4%=5%。
 
   set_refill_waste_limit(refill_waste_limit() + refill_waste_limit_increment());
-
+  // 增加走慢速分配的次数
   _slow_allocations++;
 
   if (PrintTLAB && Verbose) {

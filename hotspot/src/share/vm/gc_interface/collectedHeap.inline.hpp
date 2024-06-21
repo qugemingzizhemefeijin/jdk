@@ -99,6 +99,7 @@ void CollectedHeap::post_allocation_setup_obj(KlassHandle klass,
   assert(Universe::is_bootstrapping() ||
          !((oop)obj)->is_array(), "must not be an array");
   // notify jvmti and dtrace
+  // 通知jvmti对象创建，如果DTraceAllocProbes为true则打印日志
   post_allocation_notify(klass, (oop)obj);
 }
 
@@ -122,8 +123,9 @@ HeapWord* CollectedHeap::common_mem_allocate_noinit(KlassHandle klass, size_t si
 
   // Clear unhandled oops for memory allocation.  Memory allocation might
   // not take out a lock if from tlab, so clear here.
+  // 清理当前线程TLAB中未使用的opp
   CHECK_UNHANDLED_OOPS_ONLY(THREAD->clear_unhandled_oops();)
-
+  // 判断是否发生异常
   if (HAS_PENDING_EXCEPTION) {
     NOT_PRODUCT(guarantee(false, "Should not allocate with exception pending"));
     return NULL;  // caller does a CHECK_0 too
@@ -143,32 +145,36 @@ HeapWord* CollectedHeap::common_mem_allocate_noinit(KlassHandle klass, size_t si
   bool gc_overhead_limit_was_exceeded = false;
   result = Universe::heap()->mem_allocate(size,
                                           &gc_overhead_limit_was_exceeded);
+  // 分配成功
   if (result != NULL) {
     NOT_PRODUCT(Universe::heap()->
       check_for_non_bad_heap_word_value(result, size));
     assert(!HAS_PENDING_EXCEPTION,
            "Unexpected exception, will result in uninitialized storage");
+    // 增加当前线程记录已分配的内存大小的属性
     THREAD->incr_allocated_bytes(size * HeapWordSize);
-
+    // 发布堆内存对象分配事件
     AllocTracer::send_allocation_outside_tlab_event(klass, size * HeapWordSize);
 
     return result;
   }
 
-
+  // 分配失败
   if (!gc_overhead_limit_was_exceeded) {
     // -XX:+HeapDumpOnOutOfMemoryError and -XX:OnOutOfMemoryError support
+    // 异常处理，Java heap space表示当前堆内存严重不足
     report_java_out_of_memory("Java heap space");
-
+    // 通知JVMTI
     if (JvmtiExport::should_post_resource_exhausted()) {
       JvmtiExport::post_resource_exhausted(
         JVMTI_RESOURCE_EXHAUSTED_OOM_ERROR | JVMTI_RESOURCE_EXHAUSTED_JAVA_HEAP,
         "Java heap space");
     }
-
+    // 抛出异常
     THROW_OOP_0(Universe::out_of_memory_error_java_heap());
   } else {
     // -XX:+HeapDumpOnOutOfMemoryError and -XX:OnOutOfMemoryError support
+    // 同上，异常处理，GC overhead limit exceeded表示执行GC后仍不能有效回收内存导致内存不足
     report_java_out_of_memory("GC overhead limit exceeded");
 
     if (JvmtiExport::should_post_resource_exhausted()) {
@@ -192,7 +198,7 @@ HeapWord* CollectedHeap::common_mem_allocate_init(KlassHandle klass, size_t size
 // 从TLAB中分配内存
 HeapWord* CollectedHeap::allocate_from_tlab(KlassHandle klass, Thread* thread, size_t size) {
   assert(UseTLAB, "should use UseTLAB");
-
+  // 从tlab中分配指定大小的内存
   HeapWord* obj = thread->tlab().allocate(size);
   if (obj != NULL) {
     return obj;
@@ -206,18 +212,22 @@ void CollectedHeap::init_obj(HeapWord* obj, size_t size) {
   assert(obj != NULL, "cannot initialize NULL object");
   const size_t hs = oopDesc::header_size();
   assert(size >= hs, "unexpected object size");
+  // 设置GC分代年龄
   ((oop)obj)->set_klass_gap(0);
+  // 将分配的对象内存全部初始化为0
   Copy::fill_to_aligned_words(obj + hs, size - hs);
 }
 
 oop CollectedHeap::obj_allocate(KlassHandle klass, int size, TRAPS) {
   debug_only(check_for_valid_allocation_state());
+  // 检查Java堆是否正在gc
   assert(!Universe::heap()->is_gc_active(), "Allocation during gc not allowed");
   assert(size >= 0, "int won't convert to size_t");
   // 在堆中分配指定size大小的内存并对这块内存进行清零操作
   HeapWord* obj = common_mem_allocate_init(klass, size, CHECK_NULL);
-  // 对对象进行初始化
+  // 设置对象头和klass属性
   post_allocation_setup_obj(klass, obj);
+  // 检查分配的内存是否正常，生产环境不执行
   NOT_PRODUCT(Universe::heap()->check_for_bad_heap_word_value(obj, size));
   return (oop)obj;
 }

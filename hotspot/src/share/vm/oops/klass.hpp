@@ -219,8 +219,9 @@ class Klass : public Metadata {
   // Biased locking implementation and statistics
   // (the 64-bit chunk goes first, to avoid some fragmentation)
   jlong    _last_biased_lock_bulk_revocation_time;
-  // 在锁的实现过程中非重要。（具体是干嘛的呢？？？）
+  // 原型头，用于用于标识Mark Word原型，在对象被创建出来以后，会从_prototype_header拷贝数据到对象头的Mark Word中。（此类型用于开启了偏向锁的时候使用）
   markOop  _prototype_header;   // Used when biased locking is both enabled and disabled for this type
+  // 撤销计数器，每次该class的对象发生偏向锁撤销操作时，计数器会自增1，当达到批量重偏向阈值（默认20）时，会执行批量重偏向；当达到批量撤销的阈值（默认40）时，会执行批量撤销。
   jint     _biased_lock_revocation_count;
 
   TRACE_DEFINE_KLASS_TRACE_ID;

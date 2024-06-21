@@ -1169,7 +1169,7 @@ instanceOop InstanceKlass::register_finalizer(instanceOop i, TRAPS) {
 instanceOop InstanceKlass::allocate_instance(TRAPS) {
   // 是否重写finalize()方法
   bool has_finalizer_flag = has_finalizer(); // Query before possible GC
-  // 获取创建instanceOop实例所需要的内存空间
+  // 获取创建instanceOop实例所需要的内存空间（获取目标类的对象大小）
   int size = size_helper();  // Query before forming handle.
 
   KlassHandle h_k(THREAD, this);
@@ -1177,8 +1177,9 @@ instanceOop InstanceKlass::allocate_instance(TRAPS) {
   instanceOop i;
 
   // 分配size大小的内存并将内存初始化为零值，这样Java对象就可以不经过初始化而使用其各个字段的零值。
+  // hotspot/src/share/vm/gc_interface/collectedHeap.hpp
   i = (instanceOop)CollectedHeap::obj_allocate(h_k, size, CHECK_NULL);
-  // 如果我们的要求Finalizer的类在分配好空间对象之后注册。
+  // 如果覆写了finalize方法并且RegisterFinalizersAtInit为false，即不在JVM启动时完成finalize方法的注册
   if (has_finalizer_flag && !RegisterFinalizersAtInit) {
     i = register_finalizer(i, CHECK_NULL);
   }

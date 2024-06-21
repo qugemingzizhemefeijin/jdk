@@ -1396,8 +1396,11 @@ static void jni_invoke_nonstatic(JNIEnv *env, JavaValue* result, jobject receive
 
 static instanceOop alloc_object(jclass clazz, TRAPS) {
   KlassHandle k(THREAD, java_lang_Class::as_Klass(JNIHandles::resolve_non_null(clazz)));
+  // 检查目标class是否有效
   k()->check_valid_for_instantiation(false, CHECK_NULL);
+  // 确保class初始化完成
   InstanceKlass::cast(k())->initialize(CHECK_NULL);
+  // 分配对象内存，返回的instanceOop不是Handle
   instanceOop ih = InstanceKlass::cast(k())->allocate_instance(THREAD);
   return ih;
 }
@@ -1409,6 +1412,8 @@ DT_RETURN_MARK_DECL(AllocObject, jobject
                     , HOTSPOT_JNI_ALLOCOBJECT_RETURN(_ret_ref));
 #endif /* USDT2 */
 
+// 除Java代码中通过new关键字创建对象外，也可通过JNI的AllocObject方法或者NewObject方法完成，
+// 两者的区别在于前者只是完成对象内存分配，不会调用构造方法，后者会执行构造方法，下面从源码逐一说明这两个方法的实现。
 JNI_ENTRY(jobject, jni_AllocObject(JNIEnv *env, jclass clazz))
   JNIWrapper("AllocObject");
 
@@ -1419,9 +1424,11 @@ JNI_ENTRY(jobject, jni_AllocObject(JNIEnv *env, jclass clazz))
                                 env, clazz);
 #endif /* USDT2 */
   jobject ret = NULL;
+  // 打印Trace日志
   DT_RETURN_MARK(AllocObject, jobject, (const jobject&)ret);
-
+  // 分配对象内存
   instanceOop i = alloc_object(clazz, CHECK_NULL);
+  // 为其创建一个本地引用
   ret = JNIHandles::make_local(env, i);
   return ret;
 JNI_END
@@ -1499,7 +1506,7 @@ DT_RETURN_MARK_DECL(NewObject, jobject
 //  }
 // };
 
-// JNI中创建Java对象
+// JNI中创建Java对象（完成对象内存分配并执行构造方法，AllocObject只会分配内存但不会执行构造方法）
 JNI_ENTRY(jobject, jni_NewObject(JNIEnv *env, jclass clazz, jmethodID methodID, ...))
   JNIWrapper("NewObject");
 #ifndef USDT2
@@ -1510,13 +1517,14 @@ JNI_ENTRY(jobject, jni_NewObject(JNIEnv *env, jclass clazz, jmethodID methodID, 
 #endif /* USDT2 */
   jobject obj = NULL;
   DT_RETURN_MARK(NewObject, jobject, (const jobject&)obj);
-
+  // 同AllocObject，分配对象内存
   instanceOop i = alloc_object(clazz, CHECK_NULL);
   obj = JNIHandles::make_local(env, i);
   va_list args;
   va_start(args, methodID);
   JavaValue jvalue(T_VOID);
   JNI_ArgumentPusherVaArg ap(methodID, args);
+  // 调用构造方法
   jni_invoke_nonstatic(env, &jvalue, obj, JNI_NONVIRTUAL, methodID, &ap, CHECK_NULL);
   va_end(args);
   return obj;

@@ -286,10 +286,13 @@ void report_java_out_of_memory(const char* message) {
   // same time. To avoid dumping the heap or executing the data collection
   // commands multiple times we just do it once when the first threads reports
   // the error.
+  // 出现OutOfMemoryError时可能多个线程并发调用此方法，但是只需调用一次即可
   if (Atomic::cmpxchg(1, &out_of_memory_reported, 0) == 0) {
     // create heap dump before OnOutOfMemoryError commands are executed
+    // 根据不同的参数配置执行不同的动作
     if (HeapDumpOnOutOfMemoryError) {
       tty->print_cr("java.lang.OutOfMemoryError: %s", message);
+      // 堆内存Dump
       HeapDumper::dump_heap_from_oome();
     }
 

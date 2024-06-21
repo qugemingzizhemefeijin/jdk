@@ -37,8 +37,11 @@
 unsigned         ThreadLocalAllocBuffer::_target_refills = 0;
 GlobalTLABStats* ThreadLocalAllocBuffer::_global_stats   = NULL;
 
+// 放弃当前的TLAB后就会调用此方法完成旧TLAB的属性置空和剩余空间填充
 void ThreadLocalAllocBuffer::clear_before_allocation() {
+  // 增加慢分配下refill浪费的内存空间
   _slow_refill_waste += (unsigned)remaining();
+  // 让当前TLAB变成parsable，同时丢弃它，变成parsable即在剩余的内存空间中填充int数组，从而让Eden去看起来是连续的
   make_parsable(true);   // also retire the TLAB    // 让原TLAB保持一种可解析的状态
 }
 
@@ -108,11 +111,14 @@ void ThreadLocalAllocBuffer::make_parsable(bool retire) {
     invariants();
 
     if (retire) {
+      // 增加当前线程已分配的内存数，used_bytes方法返回TLAB中使用掉的内存，不包括浪费的内存
       myThread()->incr_allocated_bytes(used_bytes());
     }
 
+    // end指针不包含保留的内存空间，hard_end返回end+保留空间的地址,即将TLAB 中top后面剩余的空间都填充
     CollectedHeap::fill_with_object(top(), hard_end(), retire);
 
+    // 将其他属性置空，即该TLAB不能再用来分配对象
     if (retire || ZeroTLAB) {  // "Reset" the TLAB
       set_start(NULL);
       set_top(NULL);
@@ -166,6 +172,7 @@ void ThreadLocalAllocBuffer::initialize_statistics() {
 void ThreadLocalAllocBuffer::fill(HeapWord* start,
                                   HeapWord* top,
                                   size_t    new_size) {
+  // 增加重新分配TLAB的次数
   _number_of_refills++;
   if (PrintTLAB && Verbose) {
     print_stats("fill");
@@ -207,12 +214,13 @@ void ThreadLocalAllocBuffer::initialize() {
     // 计算这个线程的TLAB期望占用所有TLAB的总体比例
     // TLAB 期望占用的内存空间也就是这个TLAB的值乘以期望refill的次数
     double alloc_frac = desired_size() * target_refills() / (double) capacity;
+    // 将当前准备分配的TLAB的大小作为样本采集
     _allocation_fraction.sample(alloc_frac);
   }
 
   // 计算_refill_waste_limit的初始值
   set_refill_waste_limit(initial_refill_waste_limit());
-
+  // 初始化统计数据
   initialize_statistics();
 }
 
@@ -250,6 +258,8 @@ size_t ThreadLocalAllocBuffer::initial_desired_size() {
   } else {
     // Initial size is a function of the average number of allocating threads.
     // 获取会创建并初始化TLAB的线程个数
+    // global_stats方法返回_global_stats属性
+    // allocating_threads_avg返回的是一个由AdaptiveWeightedAverage计算的根据其他线程的TLAB的分配大小自动调整的值
     unsigned nof_threads = global_stats()->allocating_threads_avg();
 
     // 没有指定-XX:TLABSize选项，TLAB的值会采用如下公式进行计算：

@@ -1090,6 +1090,13 @@ class InstanceKlass: public Klass {
   //  - the class has a finalizer (if !RegisterFinalizersAtInit)
   //  - the class size is larger than FastAllocateSizeLimit
   //  - the class is java/lang/Class, which cannot be allocated directly
+  // 判断是否可以被快速分配
+  // 此bit在 classFileParser.cpp 中初始化。
+  // 在以下任一情况下，不支持快速分配：
+  // - 目标类是抽象类（包括任何接口）
+  // - 目标类覆写了Object的finalizer方法（如果 ！RegisterFinalizersAtInit）
+  // - 目标类大于大于 FastAllocateSizeLimit 参数的值，该参数默认是128k。 hotspot/src/share/vm/runtime/globals.hpp
+  // - 目标类是java/lang/Class，不能直接分配
   bool can_be_fastpath_allocated() const {
     return !layout_helper_needs_slow_path(layout_helper());
   }

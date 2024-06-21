@@ -103,7 +103,7 @@ private:
   unsigned  _fast_refill_waste;                                                                 // 快速重填的浪费字节数
   unsigned  _slow_refill_waste;                                                                 // 慢速重填的浪费字节数
   unsigned  _gc_waste;                                                                          // GC期间废弃的字节数
-  unsigned  _slow_allocations;                                                                  // 慢速分配的次数
+  unsigned  _slow_allocations;                                                                  // 走慢速分配的次数，通过TLAB分配是快速分配，走堆内存分配因为必须加锁是慢速分配
 
   AdaptiveWeightedAverage _allocation_fraction;  // fraction of eden allocated in tlabs         // Eden中分配给TLAB的比例
 
@@ -117,6 +117,7 @@ private:
   void set_desired_size(size_t desired_size)     { _desired_size = desired_size; }
   void set_refill_waste_limit(size_t waste)      { _refill_waste_limit = waste;  }
 
+  // TLABRefillWasteFraction表示因内存碎片导致refill允许浪费的最大TLAB空间，默认值64，即初始的最大浪费空间是desired_size的64分之一
   size_t initial_refill_waste_limit()            { return desired_size() / TLABRefillWasteFraction; }
 
   static int    target_refills()                 { return _target_refills; }
@@ -174,8 +175,11 @@ public:
   inline HeapWord* allocate(size_t size);
 
   // Reserve space at the end of TLAB
+  // 计算在TLAB尾部保留的用于refiil int[]和prefetch的空间大小
   static size_t end_reserve() {
+    // 返回int数组的oop的对象头的大小，即int[0]的大小
     int reserve_size = typeArrayOopDesc::header_size(T_INT);
+    // reserve_for_allocation_prefetch方法返回为prefetch指令在TLAB尾部预留的空间大小
     return MAX2(reserve_size, VM_Version::reserve_for_allocation_prefetch());
   }
   static size_t alignment_reserve()              { return align_object_size(end_reserve()); }
