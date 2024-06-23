@@ -119,6 +119,12 @@ void CollectedHeap::post_allocation_setup_array(KlassHandle klass,
   post_allocation_notify(klass, (oop)obj);
 }
 
+/**
+ * 申请一块非永久性存储空间，若分配失败则抛出异常
+ *
+ * 	1).从本地线程分配缓冲[TLAB]中申请存储空间
+ * 	2).从堆[Heap]中申请存储空间
+ */
 HeapWord* CollectedHeap::common_mem_allocate_noinit(KlassHandle klass, size_t size, TRAPS) {
 
   // Clear unhandled oops for memory allocation.  Memory allocation might
@@ -143,6 +149,7 @@ HeapWord* CollectedHeap::common_mem_allocate_noinit(KlassHandle klass, size_t si
   }
   // 在堆中分配内存
   bool gc_overhead_limit_was_exceeded = false;
+  // 这个方法里面涉及到堆扩容，GC等等内容
   result = Universe::heap()->mem_allocate(size,
                                           &gc_overhead_limit_was_exceeded);
   // 分配成功
@@ -170,7 +177,7 @@ HeapWord* CollectedHeap::common_mem_allocate_noinit(KlassHandle klass, size_t si
         JVMTI_RESOURCE_EXHAUSTED_OOM_ERROR | JVMTI_RESOURCE_EXHAUSTED_JAVA_HEAP,
         "Java heap space");
     }
-    // 抛出异常
+    // 抛出异常 Java heap space
     THROW_OOP_0(Universe::out_of_memory_error_java_heap());
   } else {
     // -XX:+HeapDumpOnOutOfMemoryError and -XX:OnOutOfMemoryError support
@@ -182,11 +189,14 @@ HeapWord* CollectedHeap::common_mem_allocate_noinit(KlassHandle klass, size_t si
         JVMTI_RESOURCE_EXHAUSTED_OOM_ERROR | JVMTI_RESOURCE_EXHAUSTED_JAVA_HEAP,
         "GC overhead limit exceeded");
     }
-
+    // 抛出异常 GC overhead limit exceeded
     THROW_OOP_0(Universe::out_of_memory_error_gc_overhead_limit());
   }
 }
 
+/**
+ * 申请一块非永久性存储空间并初始化分配的对象内存块
+ */
 HeapWord* CollectedHeap::common_mem_allocate_init(KlassHandle klass, size_t size, TRAPS) {
   // 分配内存
   HeapWord* obj = common_mem_allocate_noinit(klass, size, CHECK_NULL);

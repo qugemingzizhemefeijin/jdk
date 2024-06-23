@@ -171,6 +171,11 @@ IRT_ENTRY(void, InterpreterRuntime::_new(JavaThread* thread, ConstantPool* pool,
   //       Java).
   //       If we have a breakpoint, then we don't rewrite
   //       because the _breakpoint bytecode would be lost.
+  // 上面注释的翻译：
+  // 此时，由于递归初始化，类可能未完全初始化。如果它是完全初始化的，并且没有设置has_finalized，
+  // 我们把它重写成它的快速版本（注意：这里不需要锁定，因为这是一个原子写入，可以多次完成。）
+  // 注意：对于带有has_finalized的类，我们不会重写，因为这样可以节省我们在快速版本中的额外检查，
+  // 然后无论如何都会调用慢速版本（并回调到 Java）。如果我们有一个断点，那么我们不会重写，因为_breakpoint字节码会丢失。
   // hotspot/src/share/vm/oops/instanceKlass.cpp
   oop obj = klass->allocate_instance(CHECK);    // 为Java对象分配内存
   // 将结果放到当前线程的_vm_result属性中，该属性专门用来传递解释器执行方法调用的结果

@@ -1172,6 +1172,7 @@ HeapWord* DefNewGeneration::allocate(size_t word_size,
 
 HeapWord* DefNewGeneration::par_allocate(size_t word_size,
                                          bool is_tlab) {
+  // hotspot/src/share/vm/memory/space.hpp : class EdenSpace : public ContiguousSpace
   HeapWord* res = eden()->par_allocate(word_size);
   if (CMSEdenChunksRecordAlways && _next_gen != NULL) {
     _next_gen->sample_eden_chunk();
