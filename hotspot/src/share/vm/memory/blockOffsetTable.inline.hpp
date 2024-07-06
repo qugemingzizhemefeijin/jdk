@@ -45,6 +45,7 @@ inline HeapWord* BlockOffsetTable::block_start(const void* addr) const {
 //////////////////////////////////////////////////////////////////////////
 inline size_t BlockOffsetSharedArray::index_for(const void* p) const {
   char* pc = (char*)p;
+  // 校验p在_reserved对应的内存区域范围内
   assert(pc >= (char*)_reserved.start() &&
          pc <  (char*)_reserved.end(),
          "p not in range.");
@@ -84,12 +85,15 @@ inline void BlockOffsetArrayNonContigSpace::freed(HeapWord* blk,
 inline void BlockOffsetArrayNonContigSpace::freed(HeapWord* blk_start,
                                                   HeapWord* blk_end) {
   // Verify that the BOT shows [blk_start, blk_end) to be one block.
+  // 校验blk_start, blk_end对应的多个slot已经正确设置偏移了
   verify_single_block(blk_start, blk_end);
   // adjust _unallocated_block upward or downward
   // as appropriate
+  // BlockOffsetArrayUseUnallocatedBlock表示否是维护_unallocated_block，默认值是false
   if (BlockOffsetArrayUseUnallocatedBlock) {
     assert(_unallocated_block <= _end,
            "Inconsistent value for _unallocated_block");
+    // _unallocated_block在这个内存块的范围内，则更新_unallocated_block
     if (blk_end >= _unallocated_block && blk_start <= _unallocated_block) {
       // CMS-specific note: a block abutting _unallocated_block to
       // its left is being freed, a new block is being added or

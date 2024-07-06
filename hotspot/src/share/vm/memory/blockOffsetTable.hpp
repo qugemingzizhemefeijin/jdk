@@ -140,10 +140,14 @@ class BlockOffsetSharedArray: public CHeapObj<mtGC> {
   // An assertion-checking helper method for the set_offset_array() methods below.
   void check_reducing_assertion(bool reducing);
 
+  // set_offset_array有4个重载方法，整体上分为两类，将某个slot设置为指定值，将指定范围的多个slot设置为指定值。
+
   void set_offset_array(size_t index, u_char offset, bool reducing = false) {
+    // 校验参数
     check_reducing_assertion(reducing);
     assert(index < _vs.committed_size(), "index out of range");
     assert(!reducing || _offset_array[index] >= offset, "Not reducing");
+    // 将index处的slot设置为offset
     _offset_array[index] = offset;
   }
 
@@ -163,16 +167,20 @@ class BlockOffsetSharedArray: public CHeapObj<mtGC> {
     assert(index_for(right - 1) < _vs.committed_size(),
            "right address out of range");
     assert(left  < right, "Heap addresses out of order");
+    // 计算起始地址对应的slot个数
     size_t num_cards = pointer_delta(right, left) >> LogN_words;
 
     // Below, we may use an explicit loop instead of memset()
     // because on certain platforms memset() can give concurrent
     // readers "out-of-thin-air," phantom zeros; see 6948537.
+    // UseMemSetInBOT默认为true，部分系统使用memset有bug
     if (UseMemSetInBOT) {
       memset(&_offset_array[index_for(left)], offset, num_cards);
     } else {
+      // 获取起始地址对应的起始slot的index
       size_t i = index_for(left);
       const size_t end = i + num_cards;
+      // 使用循环遍历的方式将指定范围的slot设置为指定值
       for (; i < end; i++) {
         // Elided until CR 6977974 is fixed properly.
         // assert(!reducing || _offset_array[i] >= offset, "Not reducing");
@@ -181,6 +189,7 @@ class BlockOffsetSharedArray: public CHeapObj<mtGC> {
     }
   }
 
+  // 同上，不过left和right已经是换算过的slot的索引了
   void set_offset_array(size_t left, size_t right, u_char offset, bool reducing = false) {
     check_reducing_assertion(reducing);
     assert(right < _vs.committed_size(), "right address out of range");
@@ -222,7 +231,9 @@ class BlockOffsetSharedArray: public CHeapObj<mtGC> {
   // to be reserved.
 
   size_t compute_size(size_t mem_region_words) {
+    // N_words表示一个slot对应的字宽数，是一个枚举值
     size_t number_of_slots = (mem_region_words / N_words) + 1;
+    // 一个slot对应一个字节，allocation_align_size_up方法用于内存对齐
     return ReservedSpace::allocation_align_size_up(number_of_slots);
   }
 
@@ -267,6 +278,8 @@ public:
 
 //////////////////////////////////////////////////////////////////////////
 // The BlockOffsetArray whose subtypes use the BlockOffsetSharedArray.
+// BlockOffsetArray及其子类主要用于高效的实现CollectedHeap的block_start接口，
+// 即根据某个地址p获取该地址所属的内存块的起始地址
 //////////////////////////////////////////////////////////////////////////
 class BlockOffsetArray: public BlockOffsetTable {
   friend class VMStructs;
@@ -290,12 +303,14 @@ class BlockOffsetArray: public BlockOffsetTable {
     N_powers = 14
   };
 
+  // LogBase是枚举值，值为4
   static size_t power_to_cards_back(uint i) {   // 卡后退
     return (size_t)1 << (LogBase * i);          // 2^(4*i)
   }
   static size_t power_to_words_back(uint i) {
     return power_to_cards_back(i) * N_words;
   }
+  // 由偏移量反算跨过的slot数量
   static size_t entry_to_cards_back(u_char entry) {
     assert(entry >= N_words, "Precondition");
     return power_to_cards_back(entry - N_words);
@@ -417,6 +432,8 @@ class BlockOffsetArray: public BlockOffsetTable {
 // specialized interfaces can be made available for spaces that
 // manipulate the table.
 ////////////////////////////////////////////////////////////////////////////
+// NonContigSpace表示其关联的Space不是表示连续内存空间的ContiguousSpace类型。
+// 它就增加了一个属性HeapWord* _unallocated_block，表示未分配内存的起始地址，即_unallocated_block到_sp.end()之间的部分不包含任何对象
 class BlockOffsetArrayNonContigSpace: public BlockOffsetArray {
   friend class VMStructs;
  private:
@@ -479,8 +496,11 @@ class BlockOffsetArrayNonContigSpace: public BlockOffsetArray {
   // the given block.
   void allocated(HeapWord* blk_start, HeapWord* blk_end, bool reducing = false) {
     // Verify that the BOT shows [blk, blk + blk_size) to be one block.
+    // 校验blk_start, blk_end对应的多个slot已经正确设置偏移了
     verify_single_block(blk_start, blk_end);
+    // BlockOffsetArrayUseUnallocatedBlock表示否是维护_unallocated_block，默认值是false
     if (BlockOffsetArrayUseUnallocatedBlock) {
+      // 更新_unallocated_block
       _unallocated_block = MAX2(_unallocated_block, blk_end);
     }
   }
@@ -520,13 +540,15 @@ class BlockOffsetArrayNonContigSpace: public BlockOffsetArray {
 // A subtype of BlockOffsetArray that takes advantage of the fact
 // that its underlying space is a ContiguousSpace, so that its "active"
 // region can be more efficiently tracked (than for a non-contiguous space).
+// 表示一个连续内存分配的Space所适用的BlockOffsetArray，连续内存分配是指按照从低地址到高地址指针移动的方式分配内存，
+// 与之对应的BlockOffsetArrayNonContigSpace分配内存则是选取任意一个符合大小的内存区间分配，前后两次选择的内存区间不要求是紧挨着的，连续的。
 ////////////////////////////////////////////////////////////////////////////
 class BlockOffsetArrayContigSpace: public BlockOffsetArray {
   friend class VMStructs;
  private:
   // allocation boundary at which offset array must be updated
-  HeapWord* _next_offset_threshold;
-  size_t    _next_offset_index;      // index corresponding to that boundary
+  HeapWord* _next_offset_threshold;  // 此值之后的内存都是未分配的
+  size_t    _next_offset_index;      // index corresponding to that boundary    // 之后的slot是未设置offset的
 
   // Work function when allocation start crosses threshold.
   void alloc_block_work(HeapWord* blk_start, HeapWord* blk_end);

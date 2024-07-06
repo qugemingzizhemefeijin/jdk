@@ -36,19 +36,23 @@
 // BlockOffsetSharedArray
 //////////////////////////////////////////////////////////////////////
 
+// 具体调用是传入的reserved实际是某个Generation的内存区域，init_word_size是初始的Generation内存大小
 BlockOffsetSharedArray::BlockOffsetSharedArray(MemRegion reserved,
                                                size_t init_word_size):
   _reserved(reserved), _end(NULL)
 {
+  // 计算对应的slot个数，按照一个slot对应一个字节，计算所需要的内存
   size_t size = compute_size(reserved.word_size());
   ReservedSpace rs(size);
   if (!rs.is_reserved()) {
+    // 申请内存失败
     vm_exit_during_initialization("Could not reserve enough space for heap offset array");
   }
 
   MemTracker::record_virtual_memory_type((address)rs.base(), mtGC);
 
   if (!_vs.initialize(rs, 0)) {
+    // 申请内存失败
     vm_exit_during_initialization("Could not reserve enough space for heap offset array");
   }
   _offset_array = (u_char*)_vs.low_boundary();
@@ -68,22 +72,29 @@ BlockOffsetSharedArray::BlockOffsetSharedArray(MemRegion reserved,
   }
 }
 
+// new_word_size对应Generation新的内存大小
 void BlockOffsetSharedArray::resize(size_t new_word_size) {
   assert(new_word_size <= _reserved.word_size(), "Resize larger than reserved");
+  // 计算new_word_size对应的slot所需的内存
   size_t new_size = compute_size(new_word_size);
+  // 获取已经分配的内存
   size_t old_size = _vs.committed_size();
   size_t delta;
   char* high = _vs.high();
+  // 更新end
   _end = _reserved.start() + new_word_size;
   if (new_size > old_size) {
+    // 如果需要扩容，将需要扩展的内存做内存对齐
     delta = ReservedSpace::page_align_size_up(new_size - old_size);
     assert(delta > 0, "just checking");
     if (!_vs.expand_by(delta)) {
       // Do better than this for Merlin
+      // 扩展失败，抛出异常
       vm_exit_out_of_memory(delta, OOM_MMAP_ERROR, "offset table expansion");
     }
     assert(_vs.high() == high + delta, "invalid expansion");
   } else {
+    // 如果需要缩容
     delta = ReservedSpace::page_align_size_down(old_size - new_size);
     if (delta == 0) return;
     _vs.shrink_by(delta);
@@ -111,6 +122,7 @@ BlockOffsetArray::BlockOffsetArray(BlockOffsetSharedArray* array,
   set_init_to_zero(init_to_zero_);
   if (!init_to_zero_) {
     // initialize cards to point back to mr.start()
+    // 如果init_to_zero_为false
     set_remainder_to_point_to_start(mr.start() + N_words, mr.end());
     _array->set_offset_array(0, 0);  // set first card to 0
   }
@@ -128,6 +140,7 @@ set_remainder_to_point_to_start(HeapWord* start, HeapWord* end, bool reducing) {
     // The start address is equal to the end address (or to
     // the right of the end address) so there are not cards
     // that need to be updated..
+    // 要求start必须小于end
     return;
   }
 
@@ -166,6 +179,7 @@ set_remainder_to_point_to_start(HeapWord* start, HeapWord* end, bool reducing) {
   //
   size_t start_card = _array->index_for(start);
   size_t end_card = _array->index_for(end-1);
+  // 校验start和end都是起止slot对应的地址
   assert(start ==_array->address_for_index(start_card), "Precondition");
   assert(end ==_array->address_for_index(end_card)+N_words, "Precondition");
   set_remainder_to_point_to_start_incl(start_card, end_card, reducing); // closed interval
@@ -195,12 +209,15 @@ BlockOffsetArray::set_remainder_to_point_to_start_incl(size_t start_card, size_t
     // of the next.
     // 这里有两个-1，第一个是保证start_card包含在里面，第二个是保证end_card不会是下一个区域的start
     size_t reach = start_card - 1 + (power_to_cards_back(i+1) - 1);
+    // 注意offset是大于或者等于N_words
     offset = N_words + i;
     if (reach >= end_card) {
+      // 如果reach超过end_card
       _array->set_offset_array(start_card_for_region, end_card, offset, reducing);
       start_card_for_region = reach + 1;
       break;
     }
+    // 将start_card_for_region和reach范围的slot的值都设置为指定值
     _array->set_offset_array(start_card_for_region, reach, offset, reducing);
     start_card_for_region = reach + 1;
   } // 结束循环
@@ -216,15 +233,18 @@ void BlockOffsetArray::check_all_cards(size_t start_card, size_t end_card) const
   if (end_card < start_card) {
     return;
   }
+  // start_card对应的偏移必须是N_words
   guarantee(_array->offset_array(start_card) == N_words, "Wrong value in second card");
   u_char last_entry = N_words;
   for (size_t c = start_card + 1; c <= end_card; c++ /* yeah! */) {
     u_char entry = _array->offset_array(c);
     guarantee(entry >= last_entry, "Monotonicity");
     if (c - start_card > power_to_cards_back(1)) {
+      // 说明进入第二个逻辑区
       guarantee(entry > N_words, "Should be in logarithmic region");
     }
     size_t backskip = entry_to_cards_back(entry);
+    // landing_card是反算出来的起始card
     size_t landing_card = c - backskip;
     guarantee(landing_card >= (start_card - 1), "Inv");
     if (landing_card >= start_card) {
@@ -254,6 +274,7 @@ void
 BlockOffsetArray::do_block_internal(HeapWord* blk_start,
                                     HeapWord* blk_end,
                                     Action action, bool reducing) {
+  // 校验起始地址都是Java堆内存范围内
   assert(Universe::heap()->is_in_reserved(blk_start),
          "reference must be into the heap");
   assert(Universe::heap()->is_in_reserved(blk_end-1),
@@ -263,20 +284,25 @@ BlockOffsetArray::do_block_internal(HeapWord* blk_start,
   uintptr_t end_ui = (uintptr_t)(blk_end - 1);
   uintptr_t start_ui = (uintptr_t)blk_start;
   // Calculate the last card boundary preceding end of blk
+  // 将boundary_before_end地址的后LogN位置为0，如果start_ui大于boundary_before_end说明start_ui与end_ui之间的大小小于一个slot对应的大小，即512字节，
+  // 即这两个地址都对应于同一个slot
   intptr_t boundary_before_end = (intptr_t)end_ui;
   clear_bits(boundary_before_end, right_n_bits(LogN));
   if (start_ui <= (uintptr_t)boundary_before_end) {
     // blk starts at or crosses a boundary
     // Calculate index of card on which blk begins
+    // 计算起始地址对应的slot索引
     size_t    start_index = _array->index_for(blk_start);
     // Index of card on which blk ends
     size_t    end_index   = _array->index_for(blk_end - 1);
     // Start address of card on which blk begins
+    // 反算出start_index对应的起始地址，boundary肯定小于或者等于blk_start
     HeapWord* boundary    = _array->address_for_index(start_index);
     assert(boundary <= blk_start, "blk should start at or after boundary");
     if (blk_start != boundary) {
       // blk starts strictly after boundary
       // adjust card boundary and start_index forward to next card
+      // blk_start大于boundary，则将start_index加1，boundary加上N_words，保证boundary大于blk_start
       boundary += N_words;
       start_index++;
     }
@@ -285,25 +311,30 @@ BlockOffsetArray::do_block_internal(HeapWord* blk_start,
     switch (action) {
       case Action_mark: {
         if (init_to_zero()) {
+          // 设置start_index对应slot的偏移量，注意此时的偏移量是boundary减去blk_start，这个偏移量肯定小于N_words
           _array->set_offset_array(start_index, boundary, blk_start, reducing);
           break;
         } // Else fall through to the next case
       }
       case Action_single: {
+        // 设置start_index对应slot的偏移量
         _array->set_offset_array(start_index, boundary, blk_start, reducing);
         // We have finished marking the "offset card". We need to now
         // mark the subsequent cards that this blk spans.
         if (start_index < end_index) {
           HeapWord* rem_st = _array->address_for_index(start_index) + N_words;
           HeapWord* rem_end = _array->address_for_index(end_index) + N_words;
+          // 将start_index后面的slot打标
           set_remainder_to_point_to_start(rem_st, rem_end, reducing);
         }
         break;
       }
       case Action_check: {
+        // 校验起始start_index的slot的偏移
         _array->check_offset_array(start_index, boundary, blk_start);
         // We have finished checking the "offset card". We need to now
         // check the subsequent cards that this blk spans.
+        // 校验start_index后面的slot的偏移
         check_all_cards(start_index + 1, end_index);
         break;
       }
@@ -386,10 +417,12 @@ BlockOffsetArrayNonContigSpace::alloc_block(HeapWord* blk_start,
 //      blk is the start of the block
 //      blk_size is the size of the original block
 //      left_blk_size is the size of the first part of the split
+// split_block用于将一个内存块分成两个，blk是起始地址，blk_size是内存块的原始大小，left_blk_size是切分后的第一个内存块的大小
 void BlockOffsetArrayNonContigSpace::split_block(HeapWord* blk,
                                                  size_t blk_size,
                                                  size_t left_blk_size) {
   // Verify that the BOT shows [blk, blk + blk_size) to be one block.
+  // 校验内存块对应的slot是否正确设置了offset
   verify_single_block(blk, blk_size);
   // Update the BOT to indicate that [blk + left_blk_size, blk + blk_size)
   // is one single block.
@@ -398,11 +431,13 @@ void BlockOffsetArrayNonContigSpace::split_block(HeapWord* blk,
   assert(left_blk_size < blk_size, "Not a split");
 
   // Start addresses of prefix block and suffix block.
+  // 计算分开的两个内存块对应的起止地址
   HeapWord* pref_addr = blk;
   HeapWord* suff_addr = blk + left_blk_size;
   HeapWord* end_addr  = blk + blk_size;
 
   // Indices for starts of prefix block and suffix block.
+  // 计算两个内存块的起止地址对应的slot索引
   size_t pref_index = _array->index_for(pref_addr);
   if (_array->address_for_index(pref_index) != pref_addr) {
     // pref_addr does not begin pref_index
@@ -433,15 +468,19 @@ void BlockOffsetArrayNonContigSpace::split_block(HeapWord* blk,
   size_t end_index  = _array->index_for(end_addr - 1) + 1;
 
   // Calculate the # cards that the prefix and suffix affect.
+  // 计算两个内存块对应的slot数
   size_t num_pref_cards = suff_index - pref_index;
 
   size_t num_suff_cards = end_index  - suff_index;
   // Change the cards that need changing
+  // 如果num_suff_cards等于0说明不用变更
   if (num_suff_cards > 0) {
     HeapWord* boundary = _array->address_for_index(suff_index);
     // Set the offset card for suffix block
+    // 设置suff_index对应的slot
     _array->set_offset_array(suff_index, boundary, suff_addr, true /* reducing */);
     // Change any further cards that need changing in the suffix
+    // 如果num_pref_cards等于0，则suff_index等于pref_index
     if (num_pref_cards > 0) {
       if (num_pref_cards >= num_suff_cards) {
         // Unilaterally fix all of the suffix cards: closed card
@@ -519,12 +558,14 @@ BlockOffsetArrayNonContigSpace::mark_block(HeapWord* blk_start,
 HeapWord* BlockOffsetArrayNonContigSpace::block_start_unsafe(
   const void* addr) const {
   assert(_array->offset_array(0) == 0, "objects can't cross covered areas");
+  // 校验addr在对应的Space地址范围内
   assert(_bottom <= addr && addr < _end,
          "addr must be covered by this Array");
   // Must read this exactly once because it can be modified by parallel
   // allocation.
   HeapWord* ub = _unallocated_block;
   if (BlockOffsetArrayUseUnallocatedBlock && addr >= ub) {
+    // ub到end都视为一个未分配对象的内存块，所以返回的起始地址就是ub
     assert(ub < _end, "tautology (see above)");
     return ub;
   }
@@ -532,12 +573,15 @@ HeapWord* BlockOffsetArrayNonContigSpace::block_start_unsafe(
   // Otherwise, find the block start using the table.
   // 使用偏移表记录的信息查找对象的开始地址
   size_t index = _array->index_for(addr);
+  // 计算index对应的地址
   HeapWord* q = _array->address_for_index(index);
-
+  // 获取index对应slot保存的偏移量
   uint offset = _array->offset_array(index);    // Extend u_char to uint.
+  // 不断往前查找，直到获取的offset小于N_words
   while (offset >= N_words) {
     // The excess of the offset from N_words indicates a power of Base
     // to go back by.
+    // 根据偏移量计算对应的slot的数量
     size_t n_cards_back = entry_to_cards_back(offset);
     q -= (N_words * n_cards_back);
     assert(q >= _sp->bottom(),
@@ -549,8 +593,11 @@ HeapWord* BlockOffsetArrayNonContigSpace::block_start_unsafe(
     index -= n_cards_back;
     offset = _array->offset_array(index);
   }
+
+  // offset小于N_words，则该offset表示上一个slot到内存块起始地址的偏移
   assert(offset < N_words, "offset too large");
   index--;
+  // 减去offset，获取内存块的偏移
   q -= offset;
   assert(q >= _sp->bottom(),
          err_msg("q = " PTR_FORMAT " crossed below bottom = " PTR_FORMAT,
@@ -559,7 +606,7 @@ HeapWord* BlockOffsetArrayNonContigSpace::block_start_unsafe(
          err_msg("q = " PTR_FORMAT " crossed above end = " PTR_FORMAT,
                  q, _sp->end()));
   HeapWord* n = q;
-
+  // 从内存块的起始地址开始往后遍历，找到q所属的某个对象的起始地址
   while (n <= addr) {
     debug_only(HeapWord* last = q);   // for debugging
     q = n;
@@ -579,6 +626,7 @@ HeapWord* BlockOffsetArrayNonContigSpace::block_start_unsafe(
   return q;
 }
 
+// 注意block_start_careful方法要求addr是某个slot的起始地址
 HeapWord* BlockOffsetArrayNonContigSpace::block_start_careful(
   const void* addr) const {
   assert(_array->offset_array(0) == 0, "objects can't cross covered areas");
@@ -596,6 +644,7 @@ HeapWord* BlockOffsetArrayNonContigSpace::block_start_careful(
   // Otherwise, find the block start using the table, but taking
   // care (cf block_start_unsafe() above) not to parse any objects/blocks
   // on the cards themsleves.
+  // 校验addr是某个slot的起始地址
   size_t index = _array->index_for(addr);
   assert(_array->address_for_index(index) == addr,
          "arg should be start of card");
@@ -605,8 +654,10 @@ HeapWord* BlockOffsetArrayNonContigSpace::block_start_careful(
   do {
     offset = _array->offset_array(index);
     if (offset < N_words) {
+      // 如果offset小于N_words则说明已经找到保存具体偏移量的最后一个slot了
       q -= offset;
     } else {
+      // 继续往前查找
       size_t n_cards_back = entry_to_cards_back(offset);
       q -= (n_cards_back * N_words);
       index -= n_cards_back;
@@ -623,7 +674,9 @@ HeapWord* BlockOffsetArrayNonContigSpace::block_start_careful(
 // call to non-const do_block_internal() below.
 void BlockOffsetArrayNonContigSpace::verify_single_block(
   HeapWord* blk_start, HeapWord* blk_end) {
+  // VerifyBlockOffsetArray是非生产版本才有的属性，默认值是false
   if (VerifyBlockOffsetArray) {
+    // 校验blk_start, blk_end对应的多个slot已经正确设置偏移了
     do_block_internal(blk_start, blk_end, Action_check);
   }
 }
@@ -664,15 +717,19 @@ HeapWord* BlockOffsetArrayContigSpace::block_start_unsafe(const void* addr) cons
   assert(_array->offset_array(0) == 0, "objects can't cross covered areas");
 
   // Otherwise, find the block start using the table.
+  // 校验addr的有效性
   assert(_bottom <= addr && addr < _end,
          "addr must be covered by this Array");
+  // 获取addr对应的index，因为是连续分配，所以index不能超过_next_offset_index-1
   size_t index = _array->index_for(addr);
   // We must make sure that the offset table entry we use is valid.  If
   // "addr" is past the end, start at the last known one and go forward.
   index = MIN2(index, _next_offset_index-1);
+  // 获取index对应的地址和保存的偏移量
   HeapWord* q = _array->address_for_index(index);
 
   uint offset = _array->offset_array(index);    // Extend u_char to uint.
+  // 不断往前查找直到找到offset < N_words的slot，该slot保存的是该内存块的起始地址相对于该slot的偏移量
   while (offset > N_words) {
     // The excess of the offset from N_words indicates a power of Base
     // to go back by.
@@ -689,9 +746,10 @@ HeapWord* BlockOffsetArrayContigSpace::block_start_unsafe(const void* addr) cons
     offset = _array->offset_array(index);
   }
   assert(offset < N_words, "offset too large");
+  // 减去偏移量获取内存块的起始地址
   q -= offset;
   HeapWord* n = q;
-
+  // 从内存块的起始地址开始往后遍历，找到该地址所属对象的地址
   while (n <= addr) {
     debug_only(HeapWord* last = q);   // for debugging
     q = n;
@@ -722,6 +780,7 @@ void BlockOffsetArrayContigSpace::alloc_block_work(HeapWord* blk_start,
          "should be past threshold");
   assert(blk_start <= _next_offset_threshold,
          "blk_start should be at or before threshold");
+  // 校验blk_start必须位于_next_offset_index上一个slot中，如上图中的i-1,因为i-2的slot对应的内存已经分配出去了
   assert(pointer_delta(_next_offset_threshold, blk_start) <= N_words,
          "offset should be <= BlockOffsetSharedArray::N");
   assert(Universe::heap()->is_in_reserved(blk_start),
