@@ -269,11 +269,13 @@ address TemplateInterpreterGenerator::generate_result_handler_for(
 address TemplateInterpreterGenerator::generate_safept_entry_for(
         TosState state,
         address runtime_entry) {
+  // 获取CodeCache的top地址，作为此执行Stub的地址
   address entry = __ pc();
   __ push(state);
   // 调用at_safepoint()函数进入安全点
   __ call_VM(noreg, runtime_entry);
   // 从安全点返回后，转到正常的字节码指令表中寻找下一条指令的入口并执行
+  // vtos表示栈顶是空的，进入此表示安全点已经结束，切换到_normal_table即正常的不检查安全点的字节码执行入口上
   __ dispatch_via(vtos, Interpreter::_normal_table.table_for(vtos));
   return entry;
 }

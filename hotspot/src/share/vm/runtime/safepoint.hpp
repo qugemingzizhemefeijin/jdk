@@ -73,10 +73,10 @@ class nmethod;
 class SafepointSynchronize : AllStatic {
  public:
   enum SynchronizeState {
-      // 相关线程不需要进入安全点
+      // 表示所有线程都不在安全点上
       _not_synchronized = 0,                   // Threads not synchronized at a safepoint
                                                // Keep this value 0. See the coment in do_call_back()
-      // 相关线程需要进入安全点
+      // 表示所有线程在执行安全点同步中
       _synchronizing    = 1,                   // Synchronizing in progress
       // 所有的线程都已经进入安全点，只有VMThread线程在运行
       _synchronized     = 2                    // All Java threads are stopped at a safepoint. Only VM thread is running
@@ -112,8 +112,8 @@ class SafepointSynchronize : AllStatic {
   // 线程同步的状态
   static volatile SynchronizeState _state;     // Threads might read this flag directly, without acquireing the Threads_lock
   // VMThread线程要等待阻塞的用户线程数，只有这些线程全部阻塞时，VMThread线程才能在安全点下执行垃圾回收操作。
-  static volatile int _waiting_to_block;       // number of threads we are waiting for to block
-  static int _current_jni_active_count;        // Counts the number of active critical natives during the safepoint
+  static volatile int _waiting_to_block;       // number of threads we are waiting for to block // 等待被阻塞（同步）的线程数
+  static int _current_jni_active_count;        // Counts the number of active critical natives during the safepoint // 记录安全点期间处于JNI关键区的线程的总数
 
   // This counter is used for fast versions of jni_Get<Primitive>Field.
   // An even value means there is no ongoing safepoint operations.
@@ -122,19 +122,19 @@ class SafepointSynchronize : AllStatic {
   // increments (at the beginning and end of each safepoint) guarantees
   // race freedom.
 public:
-  static volatile int _safepoint_counter;
+  static volatile int _safepoint_counter;       // 进入和退出安全点的总次数，进入和退出时都会加1
 private:
-  static long       _end_of_last_safepoint;     // Time of last safepoint in milliseconds
+  static long       _end_of_last_safepoint;     // Time of last safepoint in milliseconds           // 上一次退出安全点的时间
 
   // statistics
-  static jlong            _safepoint_begin_time;     // time when safepoint begins
-  static SafepointStats*  _safepoint_stats;          // array of SafepointStats struct
+  static jlong            _safepoint_begin_time;     // time when safepoint begins                  // 进入安全点的时间，单位是纳秒
+  static SafepointStats*  _safepoint_stats;          // array of SafepointStats struct              // SafepointStats数组，剩下几个参数都是跟SafepointStats配合使用，用来统计安全点相关的数据
   static int              _cur_stat_index;           // current index to the above array
   static julong           _safepoint_reasons[];      // safepoint count for each VM op
   static julong           _coalesced_vmop_count;     // coalesced vmop count
   static jlong            _max_sync_time;            // maximum sync time in nanos
   static jlong            _max_vmop_time;            // maximum vm operation time in nanos
-  static float            _ts_of_current_safepoint;  // time stamp of current safepoint in seconds
+  static float            _ts_of_current_safepoint;  // time stamp of current safepoint in seconds  // 进入安全点的时间，单位是秒
 
   static void begin_statistics(int nof_threads, int nof_running);
   static void update_statistics_on_spin_end();
@@ -226,13 +226,13 @@ class ThreadSafepointState: public CHeapObj<mtInternal> {
     _call_back              =  2  // Keep executing and wait for callback (if thread is in interpreted or vm)
   };
  private:
-  volatile bool _at_poll_safepoint;  // At polling page safepoint (NOT a poll return safepoint)
+  volatile bool _at_poll_safepoint;  // At polling page safepoint (NOT a poll return safepoint) // 为true表示当前线程处于基于poll page实现的安全点上
   // Thread has called back the safepoint code (for debugging)
-  bool                           _has_called_back;
+  bool                           _has_called_back;  // 是否已经执行了block方法
 
-  JavaThread *                   _thread;
-  volatile suspend_type          _type;
-  JavaThreadState                _orig_thread_state;
+  JavaThread *                   _thread;           // 关键的JavaThread实例
+  volatile suspend_type          _type;             // 具体的状态
+  JavaThreadState                _orig_thread_state;// 获取原来的状态
 
 
  public:

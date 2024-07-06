@@ -127,8 +127,10 @@ void RuntimeService::record_safepoint_begin() {
   }
 
   // update the time stamp to begin recording safepoint time
+  // 更新计时器，记录开始时间
   _safepoint_timer.update();
   if (UsePerfData) {
+    // 增加总的进入安全点的次数
     _total_safepoints->inc();
     if (_app_timer.is_updated()) {
       _application_time_ticks->inc(_app_timer.ticks_since_update());
@@ -160,8 +162,10 @@ void RuntimeService::record_safepoint_end() {
   }
 
   // update the time stamp to begin recording app time
+  // 重启表示应用正常执行时间的计时器
   _app_timer.update();
   if (UsePerfData) {
+    // 增加安全点的累计耗时
     _safepoint_time_ticks->inc(_safepoint_timer.ticks_since_update());
   }
 }

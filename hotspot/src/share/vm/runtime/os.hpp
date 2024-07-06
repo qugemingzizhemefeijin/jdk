@@ -363,7 +363,9 @@ class os: AllStatic {
   // in order to minimize CPU cross talk.  We pre-compute the
   // amount to shift the thread* to make this offset unique to
   // each thread.
+  // 由于我们从每个线程写入序列化页面，因此我们希望存储尽可能位于唯一的缓存行上，以最大程度地减少 CPU 串扰。 我们预先计算出线程移动量*，以使此偏移量对每个线程唯一。
   static int     get_serialize_page_shift_count() {
+    // SerializePageShiftCount是一个常量，值为4
     return SerializePageShiftCount;
   }
 
@@ -385,6 +387,7 @@ class os: AllStatic {
     uintptr_t page_offset = ((uintptr_t)thread >>
                             get_serialize_page_shift_count()) &
                             get_serialize_page_mask();
+    // 将指定位置的4字节数据修改为1，即最多支持1024个线程
     *(volatile int32_t *)((uintptr_t)_mem_serialize_page+page_offset) = 1;
   }
 
@@ -397,6 +400,7 @@ class os: AllStatic {
     // within the page.  This makes the thread argument unnecessary,
     // but we retain the NULL check to preserve existing behaviour.
     if (thread == NULL) return false;
+    // 判断addr是否在_mem_serialize_page中
     address page = (address) _mem_serialize_page;
     return addr >= page && addr < (page + os::vm_page_size());
   }

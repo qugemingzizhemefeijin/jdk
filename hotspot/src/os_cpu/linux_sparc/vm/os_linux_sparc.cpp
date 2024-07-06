@@ -426,8 +426,10 @@ inline static bool checkOverflow(sigcontext* uc,
   return false;
 }
 
+// 接受到SIGSEGV信号后调用的处理逻辑
 inline static bool checkPollingPage(address pc, address fault, address* stub) {
   if (fault == os::get_polling_page()) {
+    // 如果导致错误的地址就是_polling_page，则将stub赋值为get_poll_stub
     *stub = SharedRuntime::get_poll_stub(pc);
     return true;
   }
@@ -666,8 +668,10 @@ JVM_handle_linux_signal(int sig,
 
     if (stub != NULL) {
       // save all thread context in case we need to restore it
+      // 保存出现异常时代码的执行位置
       thread->set_saved_exception_pc(pc);
       thread->set_saved_exception_npc(npc);
+      // 开始执行stub
       set_cont_address(uc, stub);
       return true;
     }

@@ -964,6 +964,7 @@ IRT_ENTRY(MethodCounters*, InterpreterRuntime::build_method_counters(JavaThread*
 IRT_END
 
 
+// 执行安全点检查的核心就在IRT_ENTRY的定义中
 IRT_ENTRY(void, InterpreterRuntime::at_safepoint(JavaThread* thread))
   // We used to need an explict preserve_arguments here for invoke bytecodes. However,
   // stack traversal automatically takes care of preserving arguments for invoke, so
@@ -976,6 +977,7 @@ IRT_ENTRY(void, InterpreterRuntime::at_safepoint(JavaThread* thread))
     // We are called during regular safepoints and when the VM is
     // single stepping. If any thread is marked for single stepping,
     // then we may have JVMTI work to do.
+    // JVMTI通知
     JvmtiExport::at_single_stepping_point(thread, method(thread), bcp(thread));
   }
 IRT_END

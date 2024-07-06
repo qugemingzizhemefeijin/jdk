@@ -1553,6 +1553,7 @@ void JavaThread::block_if_vm_exited() {
   if (_terminated == _vm_exited) {
     // _vm_exited is set at safepoint, and Threads_lock is never released
     // we will block here forever
+    // 只有JVM退出了才会将线程终止状态里置为_vm_exited，JVM退出是在安全点下执行的，此期间Threads_lock不会被释放，即当前线程会一直阻塞，直到JVM退出
     Threads_lock->lock_without_safepoint_check();
     ShouldNotReachHere();
   }
@@ -2317,6 +2318,7 @@ int JavaThread::java_suspend_self() {
     (is_Java_thread() && !((JavaThread*)this)->has_last_Java_frame()),
     "must have walkable stack");
 
+  // SR_lock就是用于线程自旋等待的锁
   MutexLockerEx ml(SR_lock(), Mutex::_no_safepoint_check_flag);
 
   assert(!this->is_ext_suspended(),
@@ -2328,6 +2330,7 @@ int JavaThread::java_suspend_self() {
     // flag is not cleared until we set the ext_suspended flag so
     // that wait_for_ext_suspend_completion() returns consistent
     // results.
+    // 如果_suspend_equivalent为true，则将其置为false
     this->clear_suspend_equivalent();
   }
 
@@ -2344,6 +2347,7 @@ int JavaThread::java_suspend_self() {
     this->set_ext_suspended();
 
     // _ext_suspended flag is cleared by java_resume()
+    // 不断循环等待java_resume()方法获取SR_lock锁，将ext_suspended置为false，并唤醒当前线程
     while (is_ext_suspended()) {
       this->SR_lock()->wait(Mutex::_no_safepoint_check_flag);
     }
@@ -2399,11 +2403,13 @@ void JavaThread::check_safepoint_and_suspend_for_native_trans(JavaThread *thread
   // can be here operating on behalf of a suspended thread (4432884).
   // AllowJNIEnvProxy的默认值为false，因此当do_self_suspend的值为true时就会挂起
   if (do_self_suspend && (!AllowJNIEnvProxy || curJT == thread)) {
+    // 获取原来的状态
     JavaThreadState state = thread->thread_state();
 
     // We mark this thread_blocked state as a suspend-equivalent so
     // that a caller to is_ext_suspend_completed() won't be confused.
     // The suspend-equivalent state is cleared by java_suspend_self().
+    // _suspend_equivalent被设置为true
     thread->set_suspend_equivalent();
 
     // If the safepoint code sees the _thread_in_native_trans state, it will
@@ -2421,8 +2427,10 @@ void JavaThread::check_safepoint_and_suspend_for_native_trans(JavaThread *thread
     thread->set_thread_state(_thread_blocked);
     // 线程进行自挂起
     thread->java_suspend_self();
+    // 恢复原来的状态
     thread->set_thread_state(state);
     // Make sure new state is seen by VM thread
+    // 刷新高速缓存中的线程状态到内存中
     if (os::is_MP()) {
       if (UseMembar) {
         // Force a fence between the write above and read below
@@ -2442,6 +2450,7 @@ void JavaThread::check_safepoint_and_suspend_for_native_trans(JavaThread *thread
   }
 
   if (thread->is_deopt_suspend()) {
+    // 如果需要逆向优化
     thread->clear_deopt_suspend();
     RegisterMap map(thread, false);
     frame f = thread->last_frame();
@@ -2464,12 +2473,14 @@ void JavaThread::check_safepoint_and_suspend_for_native_trans(JavaThread *thread
 // Also check for pending async exception (not including unsafe access error).
 // Note only the native==>VM/Java barriers can call this function and when
 // thread state is _thread_in_native_trans.
+// 从Java代码中调用本地方法时，本地方法在执行完成检查安全点的实现
 void JavaThread::check_special_condition_for_native_trans(JavaThread *thread) {
   check_safepoint_and_suspend_for_native_trans(thread);
 
   if (thread->has_async_exception()) {
     // We are in _thread_in_native_trans state, don't handle unsafe
     // access error since that may block.
+    // 处理线程执行过程中的异常
     thread->check_and_handle_async_exceptions(false);
   }
 }

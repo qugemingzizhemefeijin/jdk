@@ -607,6 +607,8 @@ int TemplateInterpreter::TosState_as_index(TosState state) {
 
 static inline void copy_table(address* from, address* to, int size) {
   // Copy non-overlapping tables. The copy has to occur word wise for MT safety.
+  // 每次复制8字节的数组，DispatchTable就是一个address二维数组，因此在不加锁的情况下也能保证解释器依然正常执行
+  // 在解释器并行执行时，部分已复制的字节码走检查安全点的逻辑，未复制的字节码继续走原来的逻辑，不检查安全点
   while (size-- > 0) *to++ = *from++;
 }
 
@@ -614,6 +616,7 @@ static inline void copy_table(address* from, address* to, int size) {
 void TemplateInterpreter::notice_safepoints() {
   if (!_notice_safepoints) {
     // switch to safepoint dispatch table
+    // 如果_notice_safepoints为false，即未进入安全点，将_notice_safepoints置为true
     _notice_safepoints = true;
     // 将_active_table中的相关入口点替换为_safept_table中对应的入口点，而_active_table就是字节码派发表。
     // 字节码模板解释器在执行字节码时，需要用_active_table来派发字节码，_active_table会在HotSpot VM启动时预先生成。
@@ -628,10 +631,12 @@ void TemplateInterpreter::notice_safepoints() {
 // JvmtiExport::_enabled test and covers both cases.
 void TemplateInterpreter::ignore_safepoints() {
   if (_notice_safepoints) {
+    // 如果_notice_safepoints为true，表示已经进入安全点
     if (!JvmtiExport::should_post_single_step()) {
       // switch to normal dispatch table
       // 更新为正常的转发表入口
       _notice_safepoints = false;
+      // 将_normal_table复制到_active_table
       copy_table((address*)&_normal_table, (address*)&_active_table, sizeof(_active_table) / sizeof(address));
     }
   }

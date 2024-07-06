@@ -115,6 +115,8 @@ void SharedRuntime::generate_stubs() {
     _polling_page_vectors_safepoint_handler_blob = generate_handler_blob(CAST_FROM_FN_PTR(address, SafepointSynchronize::handle_polling_page_exception), POLL_AT_VECTOR_LOOP);
   }
 #endif // COMPILER2
+  // generate_handler_blob用于生成一个通用的处理器Blob，会先保存当前寄存器和栈帧中的数据，然后执行具体的handler方法，
+  // handler方法执行完成后再将之前保存的数据恢复到寄存器和栈帧中，即恢复之前的执行现场环境
   _polling_page_safepoint_handler_blob = generate_handler_blob(CAST_FROM_FN_PTR(address, SafepointSynchronize::handle_polling_page_exception), POLL_AT_LOOP);
   _polling_page_return_handler_blob    = generate_handler_blob(CAST_FROM_FN_PTR(address, SafepointSynchronize::handle_polling_page_exception), POLL_AT_RETURN);
 
@@ -533,9 +535,11 @@ JRT_END
 address SharedRuntime::get_poll_stub(address pc) {
   address stub;
   // Look up the code blob
+  // 找到pc对应的CodeBlob，即保存编译代码的nmethod
   CodeBlob *cb = CodeCache::find_blob(pc);
 
   // Should be an nmethod
+  // 校验cb是nmethod
   assert( cb && cb->is_nmethod(), "safepoint polling: pc must refer to an nmethod" );
 
   // Look up the relocation information
@@ -547,6 +551,7 @@ address SharedRuntime::get_poll_stub(address pc) {
 
   bool at_poll_return = ((nmethod*)cb)->is_at_poll_return(pc);
   bool has_wide_vectors = ((nmethod*)cb)->has_wide_vectors();
+  // 返回SharedRuntime的对应执行Stub
   if (at_poll_return) {
     assert(SharedRuntime::polling_page_return_handler_blob() != NULL,
            "polling page return stub not created yet");

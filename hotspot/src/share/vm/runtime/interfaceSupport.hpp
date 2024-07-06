@@ -132,10 +132,14 @@ class ThreadStateTransition : public StackObj {
 
   // Change threadstate in a manner, so safepoint can detect changes.
   // Time-critical: called on exit from every runtime routine
+  // 负责线程状态的流转，是各种场景下线程状态流转的最终实现
   static inline void transition(JavaThread *thread, JavaThreadState from, JavaThreadState to) {
+    // 校验状态不能是_thread_in_Java和_thread_in_native，从调用链看通常应该是_thread_in_vm
     assert(from != _thread_in_Java, "use transition_from_java");
     assert(from != _thread_in_native, "use transition_from_native");
+    // 校验from和to都是偶数状态，即不能是中间的转换状态，如_thread_in_native_trans
     assert((from & 1) == 0 && (to & 1) == 0, "odd numbers are transitions states");
+    // 校验当前状态就是from
     assert(thread->thread_state() == from, "coming from wrong thread state");
 
     // 当from的状态为thread_in_vm，to的状态为_thread_blocked时，在执行Safepoint-Synchronize::block()函数之前会将状态设置为
@@ -154,12 +158,15 @@ class ThreadStateTransition : public StackObj {
     thread->set_thread_state((JavaThreadState)(from + 1));
 
     // Make sure new state is seen by VM thread
+    // 如果系统支持多线程
     if (os::is_MP()) {
+      // 如果使用内存栅栏指令，x86下默认为false
       if (UseMembar) {
         // Force a fence between the write above and read below
         OrderAccess::fence();
       } else {
         // store to serialize page so VM thread can do pseudo remote membar
+        // 修改memory_serialize_page，这样当进入安全点时可以通过os::serialize_thread_states实现相同的高速缓存强制刷新的效果
         os::write_memory_serialize_page(thread);
       }
     }
@@ -182,13 +189,18 @@ class ThreadStateTransition : public StackObj {
   // fault and we can't recover from it on Windows without a SEH in
   // place.
   static inline void transition_and_fence(JavaThread *thread, JavaThreadState from, JavaThreadState to) {
+    // 校验当前状态就是from
     assert(thread->thread_state() == from, "coming from wrong thread state");
+    // 校验from和to都是非中间状态
     assert((from & 1) == 0 && (to & 1) == 0, "odd numbers are transitions states");
     // Change to transition state (assumes total store ordering!  -Urs)
+    // 修改为中间状态
     thread->set_thread_state((JavaThreadState)(from + 1));
 
     // Make sure new state is seen by VM thread
+    // 如果系统支持多线程
     if (os::is_MP()) {
+      // 如果使用内存栅栏指令，x86下默认为false
       if (UseMembar) {
         // Force a fence between the write above and read below
         OrderAccess::fence();
@@ -199,8 +211,10 @@ class ThreadStateTransition : public StackObj {
     }
 
     if (SafepointSynchronize::do_call_back()) {
+      // 如果进入安全点了，则阻塞当前线程
       SafepointSynchronize::block(thread);
     }
+    // 没有安全点或者从安全点退出，则修改线程状态为to
     thread->set_thread_state(to);
 
     CHECK_UNHANDLED_OOPS_ONLY(thread->clear_unhandled_oops();)
@@ -211,15 +225,18 @@ class ThreadStateTransition : public StackObj {
   // have not been setup.
   static inline void transition_from_java(JavaThread *thread, JavaThreadState to) {
     assert(thread->thread_state() == _thread_in_Java, "coming from wrong thread state");
+    // 直接切换，未检查安全点
     thread->set_thread_state(to);
   }
 
+  // 从_thread_in_native修改为其他状态
   static inline void transition_from_native(JavaThread *thread, JavaThreadState to) {
     // 表示线程状态的to必须是一个过渡状态
     assert((to & 1) == 0, "odd numbers are transitions states");
     // 将线程的状态由_thread_in_native设置为_thread_in_native_trans
     assert(thread->thread_state() == _thread_in_native, "coming from wrong thread state");
     // Change to transition state (assumes total store ordering!  -Urs)
+    // 设置为中间状态
     thread->set_thread_state(_thread_in_native_trans);
 
     // Make sure new state is seen by GC thread
@@ -240,6 +257,7 @@ class ThreadStateTransition : public StackObj {
     // to the runtime from native code because the runtime is not set
     // up to handle exceptions floating around at arbitrary points.
     if (SafepointSynchronize::do_call_back() || thread->is_suspend_after_native()) {
+      // 如果进入安全点或者需要挂起当前线程
       JavaThread::check_safepoint_and_suspend_for_native_trans(thread);
 
       // Clear unhandled oops anywhere where we could block, even if we don't.
@@ -249,6 +267,7 @@ class ThreadStateTransition : public StackObj {
     thread->set_thread_state(to);
   }
  protected:
+   // transition方法会检查是否进入安全点，如果是则阻塞当前线程
    void trans(JavaThreadState from, JavaThreadState to)  { transition(_thread, from, to); }
    void trans_from_java(JavaThreadState to)              { transition_from_java(_thread, to); }
    void trans_from_native(JavaThreadState to)            { transition_from_native(_thread, to); }
@@ -259,11 +278,14 @@ class ThreadStateTransition : public StackObj {
 class ThreadInVMfromJava : public ThreadStateTransition {
  public:
   ThreadInVMfromJava(JavaThread* thread) : ThreadStateTransition(thread) {
+    // 将线程状态从_thread_in_Java切换成_thread_in_vm
     trans_from_java(_thread_in_vm);
   }
   ~ThreadInVMfromJava()  {
+    // 将线程状态从_thread_in_vm切换成_thread_in_Java
     trans(_thread_in_vm, _thread_in_Java);
     // Check for pending. async. exceptions or suspends.
+    // 检查是否有异常
     if (_thread->has_special_runtime_exit_condition()) _thread->handle_special_runtime_exit_condition();
   }
 };
@@ -481,6 +503,8 @@ class RuntimeHistogramElement : public HistogramElement {
 // (thread is an argument passed in to all these routines)
 
 #define IRT_ENTRY(result_type, header)                               \
+  // ThreadInVMfromJava负责将线程的状态从in java调整为in vm，并且在at_safepoint方法执行完成调用ThreadInVMfromJava
+  // 的析构函数时执行安全点检查，从而实现在执行完当前字节码并切换到下一个字节码执行前让Java线程停在安全点上
   result_type header {                                               \
     ThreadInVMfromJava __tiv(thread);                                \
     VM_ENTRY_BASE(result_type, header, thread)                       \

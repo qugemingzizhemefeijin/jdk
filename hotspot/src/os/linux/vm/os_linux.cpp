@@ -3208,6 +3208,7 @@ bool os::protect_memory(char* addr, size_t bytes, ProtType prot,
 }
 
 bool os::guard_memory(char* addr, size_t size) {
+  // PROT_NONE表示让指定的内存页不可访问，如果其他线程访问了，则内核线程会终止执行，并给用户线程发送SIGSEGV信号
   return linux_mprotect(addr, size, PROT_NONE);
 }
 
