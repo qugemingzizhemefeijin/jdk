@@ -1721,20 +1721,26 @@ run:
       /* monitorenter and monitorexit for locking/unlocking an object */
 
       CASE(_monitorenter): {
+        // lockee 就是锁对象
         oop lockee = STACK_OBJECT(-1);
         // derefing's lockee ought to provoke implicit null check
         CHECK_NULL(lockee);
         // find a free monitor or one already allocated for this object
         // if we find a matching object then we need a new monitor
         // since this is recursive enter
+        // 如果 lock record 列表里，已存在关联该锁的 lock record
+        // 则找在其之前的最后一个空闲 lock record
+        // 否则找最后一个空闲 lock record
         BasicObjectLock* limit = istate->monitor_base();
         BasicObjectLock* most_recent = (BasicObjectLock*) istate->stack_base();
         BasicObjectLock* entry = NULL;
         while (most_recent != limit ) {
           if (most_recent->obj() == NULL) entry = most_recent;
+          // 碰到已存在关联该锁的 lock record，直接退出
           else if (most_recent->obj() == lockee) break;
           most_recent++;
         }
+        // entry 不为 NULL，代表还有空闲的 lock record
         if (entry != NULL) {
           entry->set_obj(lockee);
           markOop displaced = lockee->mark()->set_unlocked();
@@ -1750,6 +1756,7 @@ run:
           }
           UPDATE_PC_AND_TOS_AND_CONTINUE(1, -1);
         } else {
+          // lock record 不够，重新执行
           istate->set_msg(more_monitors);
           UPDATE_PC_AND_RETURN(0); // Re-execute
         }

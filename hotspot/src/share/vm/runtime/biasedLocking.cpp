@@ -142,9 +142,27 @@ static GrowableArray<MonitorInfo*>* get_or_compute_monitor_info(JavaThread* thre
   return info;
 }
 
+// 简单总结下偏向撤销的流程：
+// 1.偏向所有者没有正在持有待撤销的偏向锁，如果允许重偏向则偏向锁变可偏向锁；否则偏向锁撤销为无锁。
+// 2.偏向所有者正在持有该偏向锁，撤销该锁为偏向所有者正在持有的轻量级锁。
 
+// 细节补充：
+
+// 如何判断偏向所有者没有正在持有该偏向锁？
+// 分两步，首先判断偏向所有者是否还活着，如果还活着，则遍历它的栈，看是否能找到关联该锁的锁记录，如果找到，则正在持有，如果没找到，则没有持有。（遍历过程在一个安全点执行，此时偏向所有者被阻塞。）
+
+// 偏向所有者正在持有该偏向锁，如何将其撤销为轻量级锁？
+// 遍历偏向所有者的栈，修改与该锁关联的所有锁记录，让偏向所有者以为它对该对象加的就是轻量级锁。
+
+// 源码中的 highest_lock，为什么说是最早关联偏向锁的锁记录呢？
+// 首先，锁记录在栈里是连续存放的。
+// 请求获取锁时，按照从低地址到高地址的顺序，找在已关联该锁的锁记录之前，最后一个空闲的锁记录（没有指向任何锁对象）。
+
+// 而撤销偏向锁时，遍历偏向所有者的锁记录，也是按照从低地址到高地址的顺序，但它没有 break 的逻辑，因为它要处理所有关联该锁的锁记录。
+// 所以退出循环后，highest_lock 指向的是最早关联该锁的锁记录。
 static BiasedLocking::Condition revoke_bias(oop obj, bool allow_rebias, bool is_bulk, JavaThread* requesting_thread) {
   markOop mark = obj->mark();
+  // 如果对象不是偏向锁，直接返回 NOT_BIASED
   if (!mark->has_bias_pattern()) {
     if (TraceBiasedLocking) {
       ResourceMark rm;
@@ -155,6 +173,7 @@ static BiasedLocking::Condition revoke_bias(oop obj, bool allow_rebias, bool is_
   }
 
   uint age = mark->age();
+  // 构建两个 mark word，一个是匿名偏向模式（101），一个是无锁模式（001）
   markOop   biased_prototype = markOopDesc::biased_locking_prototype()->set_age(age);
   markOop unbiased_prototype = markOopDesc::prototype()->set_age(age);
 
@@ -169,6 +188,8 @@ static BiasedLocking::Condition revoke_bias(oop obj, bool allow_rebias, bool is_
     // Object is anonymously biased. We can get here if, for
     // example, we revoke the bias due to an identity hash code
     // being computed for an object.
+    // 匿名偏向。当调用锁对象原始的 hashcode() 方法会走到这个逻辑
+    // 如果不允许重偏向，则将对象的 mark word 设置为无锁模式
     if (!allow_rebias) {
       obj->set_mark(unbiased_prototype);
     }
@@ -179,10 +200,13 @@ static BiasedLocking::Condition revoke_bias(oop obj, bool allow_rebias, bool is_
   }
 
   // Handle case where the thread toward which the object was biased has exited
+  // 判断偏向线程是否还存活
   bool thread_is_alive = false;
+  // 如果当前线程就是偏向线程
   if (requesting_thread == biased_thread) {
     thread_is_alive = true;
   } else {
+    // 遍历当前 jvm 的所有线程，如果能找到，则说明偏向的线程还存活
     for (JavaThread* cur_thread = Threads::first(); cur_thread != NULL; cur_thread = cur_thread->next()) {
       if (cur_thread == biased_thread) {
         thread_is_alive = true;
@@ -190,7 +214,9 @@ static BiasedLocking::Condition revoke_bias(oop obj, bool allow_rebias, bool is_
       }
     }
   }
+  // 如果偏向的线程已经不存活了
   if (!thread_is_alive) {
+    // 如果允许重偏向，则将对象 mark word 设置为匿名偏向状态，否则设置为无锁状态
     if (allow_rebias) {
       obj->set_mark(biased_prototype);
     } else {
@@ -207,10 +233,12 @@ static BiasedLocking::Condition revoke_bias(oop obj, bool allow_rebias, bool is_
   // write down the needed displaced headers to the thread's stack.
   // Otherwise, restore the object's header either to the unlocked
   // or unbiased state.
+  // 线程还存活则遍历线程栈中所有的 lock record
   GrowableArray<MonitorInfo*>* cached_monitor_info = get_or_compute_monitor_info(biased_thread);
   BasicLock* highest_lock = NULL;
   for (int i = 0; i < cached_monitor_info->length(); i++) {
     MonitorInfo* mon_info = cached_monitor_info->at(i);
+    // 如果能找到对应的 lock record，说明偏向所有者正在持有锁
     if (mon_info->owner() == obj) {
       if (TraceBiasedLocking && Verbose) {
         tty->print_cr("   mon_info->owner (" PTR_FORMAT ") == obj (" PTR_FORMAT ")",
@@ -218,6 +246,8 @@ static BiasedLocking::Condition revoke_bias(oop obj, bool allow_rebias, bool is_
                       (void *) obj);
       }
       // Assume recursive case and fix up highest lock later
+      // 升级为轻量级锁，修改栈中所有关联该锁的 lock record
+      // 先处理所有锁重入的情况，轻量级锁的 displaced mark word 为 NULL，表示锁重入
       markOop mark = markOopDesc::encode((BasicLock*) NULL);
       highest_lock = mon_info->lock();
       highest_lock->set_displaced_header(mark);
@@ -229,9 +259,13 @@ static BiasedLocking::Condition revoke_bias(oop obj, bool allow_rebias, bool is_
       }
     }
   }
+  // highest_lock 如果非空，则它是最早关联该锁的 lock record
   if (highest_lock != NULL) {
     // Fix up highest lock to contain displaced header and point
     // object at it
+    // 这个 lock record 是线程彻底退出该锁的最后一个 lock record
+    // 所以要，设置 lock record 的 displaced mark word 为无锁状态的 mark word
+    // 并让锁对象的 mark word 指向当前 lock record
     highest_lock->set_displaced_header(unbiased_prototype);
     // Reset object header to point to displaced mark
     obj->set_mark(markOopDesc::encode(highest_lock));
@@ -240,13 +274,16 @@ static BiasedLocking::Condition revoke_bias(oop obj, bool allow_rebias, bool is_
       tty->print_cr("  Revoked bias of currently-locked object");
     }
   } else {
+    // 走到这里说明偏向所有者没有正在持有锁
     if (TraceBiasedLocking && (Verbose || !is_bulk)) {
       tty->print_cr("  Revoked bias of currently-unlocked object");
     }
     if (allow_rebias) {
+      // 设置为匿名偏向状态
       obj->set_mark(biased_prototype);
     } else {
       // Store the unlocked value into the object's header.
+      // 将 mark word 设置为无锁状态
       obj->set_mark(unbiased_prototype);
     }
   }
@@ -315,7 +352,14 @@ static HeuristicsResult update_heuristics(oop o, bool allow_rebias) {
   return HR_SINGLE_REVOKE;
 }
 
+// 本来只要撤销 o 这一个对象的偏向锁
+// 但是在这次单个对象的偏向撤销中，触发了批量重偏向或批量撤销
 
+// 禁用类的可偏向属性有两点作用：
+// 1.该类新分配的对象都是 无锁 状态。
+// 2.后续，线程请求该类的偏向锁对象时，发现类的可偏向属性被禁用，则直接加轻量级锁。（针对的是批量撤销时，未被线程正在持有的偏向锁。）
+
+// 对于批量撤销时，正在被线程持有的偏向锁，通过在安全点遍历所有 Java 线程的栈，将偏向锁撤销为轻量级锁。
 static BiasedLocking::Condition bulk_revoke_or_rebias_at_safepoint(oop o,
                                                                    bool bulk_rebias,
                                                                    bool attempt_rebias_of_object,
@@ -336,6 +380,7 @@ static BiasedLocking::Condition bulk_revoke_or_rebias_at_safepoint(oop o,
   Klass* k_o = o->klass();
   Klass* klass = k_o;
 
+  // 批量重偏向的逻辑
   if (bulk_rebias) {
     // Use the epoch in the klass of the object to implicitly revoke
     // all biases of objects of this data type and force them to be
@@ -382,10 +427,14 @@ static BiasedLocking::Condition bulk_revoke_or_rebias_at_safepoint(oop o,
     // cause future instances to not be biased, but existing biased
     // instances will notice that this implicitly caused their biases
     // to be revoked.
+    // 批量撤销的逻辑
+    // 首先，禁用 类元数据 里的可偏向属性
+    // markOopDesc::prototype() 返回的是一个关闭偏向模式的 prototype
     klass->set_prototype_header(markOopDesc::prototype());
 
     // Now walk all threads' stacks and forcibly revoke the biases of
     // any locked and biased objects of this data type we encounter.
+    // 其次，遍历所有线程的栈，撤销该类正在被持有的偏向锁为轻量级锁
     for (JavaThread* thr = Threads::first(); thr != NULL; thr = thr->next()) {
       GrowableArray<MonitorInfo*>* cached_monitor_info = get_or_compute_monitor_info(thr);
       for (int i = 0; i < cached_monitor_info->length(); i++) {
@@ -393,6 +442,7 @@ static BiasedLocking::Condition bulk_revoke_or_rebias_at_safepoint(oop o,
         oop owner = mon_info->owner();
         markOop mark = owner->mark();
         if ((owner->klass() == k_o) && mark->has_bias_pattern()) {
+          // 具体撤销，还是通过调用之前说的 revoke_bias() 方法做的
           revoke_bias(owner, false, true, requesting_thread);
         }
       }
@@ -400,6 +450,8 @@ static BiasedLocking::Condition bulk_revoke_or_rebias_at_safepoint(oop o,
 
     // Must force the bias of the passed object to be forcibly revoked
     // as well to ensure guarantees to callers
+    // 当前锁对象可能未被任何线程持有
+    // 所以这里单独进行撤销，以确保完成调用方的撤销语义
     revoke_bias(o, false, true, requesting_thread);
   }
 
