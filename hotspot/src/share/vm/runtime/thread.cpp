@@ -803,6 +803,7 @@ bool Thread::is_interrupted(Thread* thread, bool clear_interrupted) {
   debug_only(check_for_dangling_thread_pointer(thread);)
   // Note:  If clear_interrupted==false, this simply fetches and
   // returns the value of the field osthread()->interrupted().
+  // 判断其是否被中断，如果是且clear_interrupted为true，则将其中断标识清除掉
   return os::is_interrupted(thread, clear_interrupted);
 }
 

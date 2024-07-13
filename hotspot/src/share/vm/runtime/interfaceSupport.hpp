@@ -346,7 +346,7 @@ class ThreadToNativeFromVM : public ThreadStateTransition {
   }
 };
 
-
+// 用于修改java线程的状态，此状态是JVM内部使用的，用于实现让当前线程进入安全点
 class ThreadBlockInVM : public ThreadStateTransition {
  public:
   ThreadBlockInVM(JavaThread *thread)

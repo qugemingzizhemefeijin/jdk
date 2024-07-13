@@ -86,6 +86,12 @@ class EventJavaMonitorWait;
 // objectMoitor在每个Java对象中都具有一个一个ObjectMonitor对象。在Java中，每个对象都可以用作锁来同步多个线程的访问。
 // 当线程获取某个对象的锁时，它实际上是获取该对象关联的ObjectMonitor对象的锁。
 // 因此，每个对象在Java中都有一个与之关联的ObjectMonitor对象来控制线程对该对象的访问。
+
+// ObjectMonitor维护了三个ObjectWaiter链表，分别是cxq链表、EntryList链表和WaitSet链表，对应链表中ObjectWaiter的状态分别是TS_CXQ，TS_ENTER和TS_WAIT。
+// 调用enter方法时，如果自旋获取锁失败就会创建一个ObjectWaiter并加入到cxq链表中，某个已经获取锁的线程调用wait方法会创建一个ObjectWaiter并加入到WaitSet链表中，
+// 当某个线程调用notify/notifyAll方法“唤醒”该线程时，会将该ObjectWaiter从WaitSet链表中移除然后加入到cxq链表头。
+// 当某个获取锁的线程释放锁时，就会唤醒EntryList链表头对应的线程，如果EntryList链表为空，则将此时的cxq链表中的元素整体转移到EntryList链表中，
+// 然后同样的唤醒EntryList链表头对应的线程，被唤醒后该线程一样调用enter方法抢占锁。
 class ObjectMonitor {
  public:
   enum {
@@ -287,6 +293,7 @@ public:
   // 表示进入 monitor 的次数以避免重复进入 monitor
   volatile intptr_t  _recursions;   // recursion count, 0 for first entry
  private:
+  // 表明当前owner原来持有轻量级锁
   int OwnerIsThread ;               // _owner is (Thread *) vs SP/BasicLock
   // 一个 ObjectWaiter 对象的链表，用于存储被阻塞在 monitor 进入的线程。
   // 当一个线程在等待锁时，它会被添加到_cxq中以等待锁资源。当锁被释放时，_cxq中的线程会被从中移除并与其他等待线程竞争锁的拥有权。

@@ -4247,12 +4247,13 @@ void os::interrupt(Thread* thread) {
 bool os::is_interrupted(Thread* thread, bool clear_interrupted) {
   assert(Thread::current() == thread || Threads_lock->owned_by_self(),
     "possibility of dangling Thread pointer");
-
+  // 获取关联的原生线程
   OSThread* osthread = thread->osthread();
-
+  // 获取其是否被中断
   bool interrupted = osthread->interrupted();
 
   if (interrupted && clear_interrupted) {
+    // 清除被中断标识
     osthread->set_interrupted(false);
     // consider thread->_SleepEvent->reset() ... optional optimization
   }

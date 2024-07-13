@@ -37,8 +37,10 @@ class ServiceUtil : public AllStatic {
 
   // Return true if oop represents an object that is "visible"
   // to the java world.
+  // 如果这个oop是Java代码可见的，则返回true
   static inline bool visible_oop(oop o) {
     // the sentinel for deleted handles isn't visible
+    // 如果是已经删除的JNI引用则不可见
     if (o == JNIHandles::deleted_handle()) {
       return false;
     }
@@ -46,23 +48,29 @@ class ServiceUtil : public AllStatic {
     // instance
     if (o->is_instance()) {
       // instance objects are visible
+      // 如果是java_lang_Class的实例，即用来保存类静态属性的oop则返回false，否则返回true
       if (o->klass() != SystemDictionary::Class_klass()) {
         return true;
       }
+      // 如果是基本类型
       if (java_lang_Class::is_primitive(o)) {
         return true;
       }
       // java.lang.Classes are visible
+      // 获取o所属的klass
       Klass* k = java_lang_Class::as_Klass(o);
       if (k->is_klass()) {
         // if it's a class for an object, an object array, or
         // primitive (type) array then it's visible.
+        // 普通Java类
         if (k->oop_is_instance()) {
           return true;
         }
+        // 对象数组
         if (k->oop_is_objArray()) {
           return true;
         }
+        // 多维数组
         if (k->oop_is_typeArray()) {
           return true;
         }

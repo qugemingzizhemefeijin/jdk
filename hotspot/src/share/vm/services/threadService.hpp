@@ -397,6 +397,7 @@ public:
 };
 
 
+// 该类在构造函数中保存线程原来的状态，并在析构函数中恢复线程的原来的运行状态
 // abstract utility class to set new thread states, and restore previous after the block exits
 class JavaThreadStatusChanger : public StackObj {
  private:
@@ -408,6 +409,7 @@ class JavaThreadStatusChanger : public StackObj {
     _java_thread  = java_thread;
     _is_alive = is_alive(java_thread);
     if (is_alive()) {
+      // 获取线程状态
       _old_state = java_lang_Thread::get_thread_status(_java_thread->threadObj());
     }
   }
@@ -420,6 +422,7 @@ class JavaThreadStatusChanger : public StackObj {
 
   void set_thread_status(java_lang_Thread::ThreadStatus state) {
     if (is_alive()) {
+      // 如果线程是存活的则设置线程状态
       set_thread_status(_java_thread, state);
     }
   }
@@ -438,6 +441,7 @@ class JavaThreadStatusChanger : public StackObj {
     set_thread_status(_old_state);
   }
 
+  // 判断目标JavaThread是否存活的
   static bool is_alive(JavaThread* java_thread) {
     return java_thread != NULL && java_thread->threadObj() != NULL;
   }
@@ -505,6 +509,7 @@ class JavaThreadParkedState : public JavaThreadStatusChanger {
   }
 };
 
+// 同样是借助构造和析构函数完成状态变更的
 // Change status to blocked on (re-)entering a synchronization block
 class JavaThreadBlockedOnMonitorEnterState : public JavaThreadStatusChanger {
  private:
@@ -512,9 +517,12 @@ class JavaThreadBlockedOnMonitorEnterState : public JavaThreadStatusChanger {
   bool _active;
 
   static bool contended_enter_begin(JavaThread *java_thread) {
+    // 修改Java状态
     set_thread_status(java_thread, java_lang_Thread::BLOCKED_ON_MONITOR_ENTER);
+    // ThreadStatistics用于统计一些静态属性
     ThreadStatistics* stat = java_thread->get_thread_stat();
     stat->contended_enter();
+    // is_thread_monitoring_contention方法返回_thread_monitoring_contention_enabled属性，该属性默认为false，可通过jmm接口开启
     bool active = ThreadService::is_thread_monitoring_contention();
     if (active) {
       stat->contended_enter_begin();
@@ -538,6 +546,7 @@ class JavaThreadBlockedOnMonitorEnterState : public JavaThreadStatusChanger {
     if (active) {
       java_thread->get_thread_stat()->contended_enter_end();
     }
+    // 修改线程状态为RUNNABLE
     set_thread_status(java_thread, java_lang_Thread::RUNNABLE);
   }
 
@@ -551,11 +560,13 @@ class JavaThreadBlockedOnMonitorEnterState : public JavaThreadStatusChanger {
     _active = false;
     if (is_alive() && ServiceUtil::visible_oop((oop)obj_m->object()) && obj_m->contentions() > 0) {
       _stat = java_thread->get_thread_stat();
+      // contended_enter_begin方法会修改线程状态为BLOCKED_ON_MONITOR_ENTER
       _active = contended_enter_begin(java_thread);
     }
   }
 
   ~JavaThreadBlockedOnMonitorEnterState() {
+    // 会调用父类的析构函数将线程状态还原回去
     if (_active) {
       _stat->contended_enter_end();
     }
